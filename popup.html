@@ -18,7 +18,11 @@
         <header class="app-header">
             <div class="header-left">
                 <div class="logo-icon">
-                    <img src="icons/icon48.png" alt="Logo" style="width: 24px; height: 24px;">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                        <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                        <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                    </svg>
                 </div>
                 <h1 class="app-title">See Who Unfollowed You</h1>
             </div>
@@ -40,35 +44,14 @@
 
         <!-- Main Views -->
         <main id="main-content">
-            <!-- View: Intro (First Time) -->
-            <section id="view-intro" class="view">
+            <!-- View: Start (Initial State) -->
+            <section id="view-start" class="view active">
                 <div class="hero-section">
-                    <button id="btn-scan-first" class="btn-primary-large">
-                        <span class="btn-text">Scan Now</span>
+                    <button id="btn-scan" class="btn-primary-large">
+                        <span class="btn-text">Scan Followers</span>
                         <div class="btn-shine"></div>
                     </button>
-                    <div class="scan-meta">
-                        <p class="helper-text">Run a manual scan to see follower changes.</p>
-                    </div>
-                </div>
-            </section>
-
-            <!-- View: Dashboard (Returning) -->
-            <section id="view-dashboard" class="view">
-                <div class="dashboard-container">
-                    <div class="summary-card">
-                        <h2 id="summary-title">What changed since last scan?</h2>
-                        <p id="summary-desc">Loading summary...</p>
-                        <button id="btn-view-details" class="btn-secondary-block">View Details</button>
-                    </div>
-
-                    <div class="dashboard-actions">
-                        <button id="btn-scan-again" class="btn-primary-block">Start New Scan</button>
-                    </div>
-
-                    <div class="last-scan-meta">
-                        <span id="dashboard-last-updated">Last updated: Never</span>
-                    </div>
+                    <p class="helper-text">Safe scanning. No background activity.</p>
                 </div>
             </section>
 
@@ -94,122 +77,60 @@
 
             <!-- View: Results -->
             <section id="view-results" class="view">
-                <!-- V1.0 Diff Banner removed from here, moved to Dashboard logic -->
-
                 <div class="results-header">
-                    <div class="header-row">
-                        <button id="btn-back" class="icon-button" title="Back to Dashboard">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <path d="M19 12H5M12 19l-7-7 7-7" />
-                            </svg>
+                    <div class="tabs">
+                        <button class="tab-btn active" data-tab="strangers">
+                            Unfollowers
+                            <span id="count-strangers" class="badge">0</span>
                         </button>
-                        <div class="tabs">
-                            <div class="tab-highlight"></div>
-                            <button class="tab-btn active" data-tab="strangers">
-
-                                Unfollowers
-                                <span id="count-strangers" class="badge">0</span>
-                            </button>
-                            <button class="tab-btn" data-tab="snakes">
-                                Snakes 🐍
-                                <span id="count-snakes" class="badge">0</span>
-                            </button>
-                            <button class="tab-btn" data-tab="whitelisted">
-                                Whitelisted
-                                <span id="count-whitelisted" class="badge-subtle">0</span>
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="filter-bar">
-                        <div class="search-wrapper">
-                            <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
-                                stroke="currentColor" stroke-width="2">
-                                <circle cx="11" cy="11" r="8"></circle>
-                                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-                            </svg>
-                            <input type="text" id="search-input" placeholder="Search users...">
-                        </div>
-                        <div class="filter-toggles">
-                            <label class="toggle-pill" title="Show Verified">
-                                <input type="checkbox" id="filter-verified" checked>
-                                <span class="pill-label">Verified</span>
-                            </label>
-                            <label class="toggle-pill" title="Show Private">
-                                <input type="checkbox" id="filter-private" checked>
-                                <span class="pill-label">Private</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <div id="results-list" class="user-list">
-                        <!-- User items will be injected here -->
-                    </div>
-
-                    <div class="actions-footer">
-                        <button id="btn-unfollow-selected" class="btn-danger-block" disabled>
-                            Unfollow Selected (<span id="selected-count">0</span>)
+                        <button class="tab-btn" data-tab="snakes">
+                            Snakes 🐍
+                            <span id="count-snakes" class="badge">0</span>
                         </button>
-
-                        <div class="footer-actions">
-                            <button id="btn-timeline" class="btn-text-only">View Timeline</button>
-                            <button id="btn-export" class="btn-text-only">Export Data</button>
-                        </div>
-
-                        <div class="trust-badge" title="All data stays on your device. Nothing is sent anywhere."
-                            style="margin-top: 8px; justify-content: center;">
-                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                                stroke-width="2">
-                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-                                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-                            </svg>
-                            <span>Privacy First &bull; Local Storage</span>
-                        </div>
+                        <button class="tab-btn" data-tab="whitelisted">
+                            Whitelisted
+                            <span id="count-whitelisted" class="badge-subtle">0</span>
+                        </button>
                     </div>
+                </div>
+
+                <div class="filter-bar">
+                    <div class="search-wrapper">
+                        <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input type="text" id="search-input" placeholder="Search users...">
+                    </div>
+                    <div class="filter-toggles">
+                        <label class="toggle-pill" title="Show Verified">
+                            <input type="checkbox" id="filter-verified" checked>
+                            <span class="pill-label">Verified</span>
+                        </label>
+                        <label class="toggle-pill" title="Show Private">
+                            <input type="checkbox" id="filter-private" checked>
+                            <span class="pill-label">Private</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="results-list" class="user-list">
+                    <!-- User items will be injected here -->
+                </div>
+
+                <div class="actions-footer">
+                    <button id="btn-unfollow-selected" class="btn-danger-block" disabled>
+                        Unfollow Selected (<span id="selected-count">0</span>)
+                    </button>
                 </div>
             </section>
         </main>
 
         <!-- Footer -->
-
-    </div>
-
-    <!-- Profile Preview Card (Floating) -->
-    <div id="profile-preview-card" class="profile-card" style="display:none;">
-        <div class="card-header">
-            <img id="card-avatar" src="" class="card-avatar">
-            <div class="card-info">
-                <h4 id="card-username" style="display:flex; align-items:center;">username <span id="card-verified"
-                        class="icon-verified" style="display:none; margin-left:6px;">Verified</span></h4>
-                <span id="card-fullname">Full Name</span>
-            </div>
-        </div>
-        <div class="card-stats">
-            <div class="stat">
-                <strong id="card-followers">0</strong>
-                <span>Followers</span>
-            </div>
-            <div class="stat">
-                <strong id="card-following">0</strong>
-                <span>Following</span>
-            </div>
-        </div>
-    </div>
-
-    <!-- Timeline Modal -->
-    <div id="modal-timeline" class="modal">
-        <div class="modal-content large">
-            <div class="modal-header">
-                <h3>Scan History</h3>
-                <button class="btn-close-modal">×</button>
-            </div>
-            <div class="modal-body">
-                <div id="timeline-list" class="timeline-list">
-                    <!-- Injected Items -->
-                </div>
-            </div>
-        </div>
+        <footer class="app-footer">
+            <p>All data stays on your device.</p>
+        </footer>
     </div>
 
     <!-- Modals -->
@@ -221,13 +142,6 @@
             </div>
             <div class="modal-body">
                 <form id="settings-form">
-                    <div class="form-group toggle-group">
-                        <label>Darker Mode (OLED)</label>
-                        <label class="switch">
-                            <input type="checkbox" id="setting-darker-mode">
-                            <span class="slider round"></span>
-                        </label>
-                    </div>
                     <div class="form-group">
                         <label>Scan Delay (ms)</label>
                         <input type="number" id="setting-scan-delay" value="1000" min="500">

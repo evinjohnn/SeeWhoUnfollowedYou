@@ -17,20 +17,15 @@ let masterState = {
     totalToScan: 0,
     scanCursor: null,
     results: [],
-    snakes: [],
-    scanHistory: [], // [NEW] v1.0 History
-    lastDiff: null,  // [NEW] Most recent change summary
+    snakes: [], // [NEW] Lost connections
     unfollowQueue: [],
-    currentTabId: null,
-    lastScanTime: 0
+    currentTabId: null
 };
 
-// Load initial state
-chrome.storage.local.get(['snakes', 'lastScanResults', 'scanHistory', 'lastScanTime'], (data) => {
+// Load initial state (snakes need to persist)
+chrome.storage.local.get(['snakes', 'lastScanResults'], (data) => {
     if (data.snakes) masterState.snakes = data.snakes;
     if (data.lastScanResults) masterState.results = data.lastScanResults;
-    if (data.scanHistory) masterState.scanHistory = data.scanHistory;
-    if (data.lastScanTime) masterState.lastScanTime = data.lastScanTime;
 });
 
 // -- Listeners --
@@ -101,14 +96,6 @@ const broadcastUpdate = () => {
 const startScanProcess = async (isAuto = false) => {
     if (masterState.status === 'scanning') return;
 
-    // Ensure we have a target tab for the overlay
-    if (!masterState.currentTabId) {
-        const tabs = await chrome.tabs.query({ url: "*://www.instagram.com/*" });
-        if (tabs && tabs.length > 0) {
-            masterState.currentTabId = tabs[0].id; // Pick first main one
-        }
-    }
-
     masterState.status = 'scanning';
     masterState.results = []; // Reset results on new scan
     masterState.scannedCount = 0;
@@ -172,61 +159,31 @@ const startScanProcess = async (isAuto = false) => {
         masterState.status = 'idle';
         masterState.progress = 100;
 
-        // [NEW] History Logic & Diffs
+        // [NEW] History Logic
         // 1. Load Last Scan
         const storage = await chrome.storage.local.get(['lastScanResults']);
-        const lastScan = storage.lastScanResults || [];
-        let currentDiff = null;
+        const lastScan = storage.lastScanResults || []; // Array of users
 
-        // If we have history, calculate diff
         if (lastScan.length > 0) {
+            // 2. Identify Snakes:
+            // Users who were in lastScan (I followed them) 
+            // BUT are NOT in masterState.results (I don't follow them anymore)
+
             const currentIds = new Set(masterState.results.map(u => u.id));
-            const lastIds = new Set(lastScan.map(u => u.id));
-
-            // Snakes (Lost)
             const newSnakes = lastScan.filter(oldUser => !currentIds.has(oldUser.id));
-            // New Followers (Gained)
-            const gainedDetails = masterState.results.filter(newUser => !lastIds.has(newUser.id));
 
-            // Update Snakes List
+            // Add to master snakes list (avoid duplicates)
             const existingSnakeIds = new Set(masterState.snakes.map(s => s.id));
             newSnakes.forEach(snake => {
                 if (!existingSnakeIds.has(snake.id)) {
+                    // Mark detection date
                     snake.detected_at = Date.now();
                     masterState.snakes.push(snake);
                 }
             });
+
+            // Persist Snakes
             await chrome.storage.local.set({ snakes: masterState.snakes });
-
-            // Create Diff Object
-            currentDiff = {
-                date: Date.now(),
-                lost: newSnakes.length,
-                gained: gainedDetails.length,
-                net: gainedDetails.length - newSnakes.length
-            };
-            masterState.lastDiff = currentDiff;
-
-            // Update History
-            masterState.scanHistory.unshift({
-                date: Date.now(),
-                stats: {
-                    followers: masterState.results.length,
-                    snakes: masterState.snakes.length
-                },
-                diff: currentDiff
-            });
-
-            // Trim history to last 50 entries to save space
-            if (masterState.scanHistory.length > 50) masterState.scanHistory = masterState.scanHistory.slice(0, 50);
-
-            await chrome.storage.local.set({
-                scanHistory: masterState.scanHistory,
-                lastScanTime: Date.now()
-            });
-        } else {
-            // First run ever
-            await chrome.storage.local.set({ lastScanTime: Date.now() });
         }
 
         // 3. Save Current as Last
@@ -236,7 +193,6 @@ const startScanProcess = async (isAuto = false) => {
             chrome.storage.local.set({ lastAutoScanTime: Date.now() });
         }
 
-        masterState.lastScanTime = Date.now();
         broadcastUpdate();
 
     } catch (err) {
