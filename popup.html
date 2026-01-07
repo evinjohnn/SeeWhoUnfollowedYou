@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Instagram Unfollowers</title>
+    <link rel="stylesheet" href="popup.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <div class="logo-icon">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="2" y="2" width="20" height="20" rx="5" ry="5"></rect>
+                        <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"></path>
+                        <line x1="17.5" y1="6.5" x2="17.51" y2="6.5"></line>
+                    </svg>
+                </div>
+                <h1 class="app-title">Unfollowers</h1>
+            </div>
+            <div class="header-right">
+                <div class="status-indicator">
+                    <span class="status-dot"></span>
+                    <span class="status-text">Ready</span>
+                </div>
+                <button id="btn-settings" class="icon-button" aria-label="Settings">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path
+                            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z">
+                        </path>
+                    </svg>
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Views -->
+        <main id="main-content">
+            <!-- View: Start (Initial State) -->
+            <section id="view-start" class="view active">
+                <div class="hero-section">
+                    <button id="btn-scan" class="btn-primary-large">
+                        <span class="btn-text">Scan Followers</span>
+                        <div class="btn-shine"></div>
+                    </button>
+                    <p class="helper-text">Safe scanning. No background activity.</p>
+                </div>
+            </section>
+
+            <!-- View: Scanning (Progress) -->
+            <section id="view-scanning" class="view">
+                <div class="scanning-status">
+                    <div class="loader-ring">
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                        <div></div>
+                    </div>
+                    <h2 id="scanning-text">Scanning...</h2>
+                    <p id="scanning-subtext">Fetching your connections</p>
+                </div>
+                <div class="progress-container">
+                    <div class="progress-bar">
+                        <div id="scan-progress" class="progress-fill" style="width: 0%"></div>
+                    </div>
+                    <span id="scan-percentage" class="progress-label">0%</span>
+                </div>
+            </section>
+
+            <!-- View: Results -->
+            <section id="view-results" class="view">
+                <div class="results-header">
+                    <div class="tabs">
+                        <button class="tab-btn active" data-tab="snakes">
+                            Snakes 🐍
+                            <span id="count-snakes" class="badge">0</span>
+                        </button>
+                        <button class="tab-btn" data-tab="whitelisted">
+                            Whitelisted
+                            <span id="count-whitelisted" class="badge-subtle">0</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="filter-bar">
+                    <div class="search-wrapper">
+                        <svg class="search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none"
+                            stroke="currentColor" stroke-width="2">
+                            <circle cx="11" cy="11" r="8"></circle>
+                            <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+                        </svg>
+                        <input type="text" id="search-input" placeholder="Search users...">
+                    </div>
+                    <div class="filter-toggles">
+                        <label class="toggle-pill" title="Show Verified">
+                            <input type="checkbox" id="filter-verified" checked>
+                            <span class="pill-label">Verified</span>
+                        </label>
+                        <label class="toggle-pill" title="Show Private">
+                            <input type="checkbox" id="filter-private" checked>
+                            <span class="pill-label">Private</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div id="results-list" class="user-list">
+                    <!-- User items will be injected here -->
+                </div>
+
+                <div class="actions-footer">
+                    <button id="btn-unfollow-selected" class="btn-danger-block" disabled>
+                        Unfollow Selected (<span id="selected-count">0</span>)
+                    </button>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="app-footer">
+            <p>All data stays on your device.</p>
+        </footer>
+    </div>
+
+    <!-- Modals -->
+    <div id="modal-settings" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Settings</h3>
+                <button class="btn-close-modal">×</button>
+            </div>
+            <div class="modal-body">
+                <form id="settings-form">
+                    <div class="form-group">
+                        <label>Scan Delay (ms)</label>
+                        <input type="number" id="setting-scan-delay" value="1000" min="500">
+                    </div>
+                    <div class="form-group">
+                        <label>Unfollow Delay (ms)</label>
+                        <input type="number" id="setting-unfollow-delay" value="4000" min="1000">
+                    </div>
+                    <!-- Add more settings as needed based on original logic -->
+                </form>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary btn-close-modal">Cancel</button>
+                <button id="btn-save-settings" class="btn-primary">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast-container"></div>
+
+    <script src="utils.js" type="module"></script>
+    <script src="popup.js" type="module"></script>
+</body>
+
+</html>
