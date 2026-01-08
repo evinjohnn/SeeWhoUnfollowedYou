@@ -11,7 +11,9 @@
         "tabs"
     ],
     "host_permissions": [
-        "https://www.instagram.com/*"
+        "https://www.instagram.com/*",
+        "https://*.fbcdn.net/*",
+        "https://*.cdninstagram.com/*"
     ],
     "background": {
         "service_worker": "background.js",

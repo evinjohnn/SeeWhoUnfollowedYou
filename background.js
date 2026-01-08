@@ -50,6 +50,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             startUnfollowProcess(request.users);
             sendResponse({ success: true });
             break;
+        case 'FETCH_IMAGE':
+            // Proxy image requests to bypass CORS
+            fetch(request.url, {
+                credentials: 'omit',
+                referrerPolicy: 'no-referrer'
+            })
+                .then(response => response.blob())
+                .then(blob => {
+                    const reader = new FileReader();
+                    reader.onloadend = () => {
+                        sendResponse({ success: true, dataUrl: reader.result });
+                    };
+                    reader.readAsDataURL(blob);
+                })
+                .catch(error => {
+                    console.error('Image fetch failed:', error);
+                    sendResponse({ success: false });
+                });
+            return true; // Keep channel open for async response
     }
     return true; // async response
 });
@@ -186,8 +205,28 @@ const startScanProcess = async (isAuto = false) => {
             await chrome.storage.local.set({ snakes: masterState.snakes });
         }
 
-        // 3. Save Current as Last
-        await chrome.storage.local.set({ lastScanResults: masterState.results });
+        // 3. Save Current as Last + Timestamp for cooldown indicator
+        // Also save to scan history for comparison
+        const currentScanData = {
+            timestamp: Date.now(),
+            followingCount: masterState.results.length
+        };
+
+        // Load existing scan history
+        const historyStorage = await chrome.storage.local.get(['scanHistory']);
+        const scanHistory = historyStorage.scanHistory || [];
+
+        // Add current scan to history (keep last 10 scans)
+        scanHistory.push(currentScanData);
+        if (scanHistory.length > 10) {
+            scanHistory.shift(); // Remove oldest
+        }
+
+        await chrome.storage.local.set({
+            lastScanResults: masterState.results,
+            lastScanTime: Date.now(),
+            scanHistory: scanHistory
+        });
 
         if (isAuto) {
             chrome.storage.local.set({ lastAutoScanTime: Date.now() });
