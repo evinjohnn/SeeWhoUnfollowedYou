@@ -72,6 +72,28 @@
                         <h3 class="summary-title-large">See what changed since last scan</h3>
                         <p id="summary-sentence" class="summary-sentence-large">Checking...</p>
 
+                        <!-- CLOUT TRACKER INJECTED HERE -->
+                        <div class="clout-tracker hidden">
+                            <div class="clout-header">
+                                <span class="clout-label">Net Growth</span>
+                                <span id="clout-change" class="clout-change">0</span>
+                            </div>
+                            <div id="growth-sparkline" class="growth-sparkline">
+                                <!-- SVG Sparkline injected here -->
+                            </div>
+                        </div>
+
+                        <!-- Clout Tracker (Growth Metrics) -->
+                        <div class="clout-tracker hidden">
+                            <div class="clout-header">
+                                <span class="clout-title">Clout Tracker</span>
+                                <span id="clout-change" class="clout-badge">+0</span>
+                            </div>
+                            <div id="growth-sparkline" class="growth-sparkline">
+                                <!-- SVG Sparkline injected here -->
+                            </div>
+                        </div>
+
                         <!-- Timeline View -->
                         <div id="timeline-container" class="timeline-container hidden">
                             <div id="timeline-list" class="timeline-list">
@@ -178,8 +200,14 @@
                 </div>
 
                 <div class="actions-footer">
+                    <button id="btn-whitelist-selected" class="btn-secondary-block" disabled>
+                        Whitelist Selected (<span id="whitelist-selected-count">0</span>)
+                    </button>
                     <button id="btn-unfollow-selected" class="btn-danger-block" disabled>
                         Unfollow Selected (<span id="selected-count">0</span>)
+                    </button>
+                    <button id="btn-remove-whitelisted-selected" class="btn-danger-block hidden" disabled>
+                        Remove Selected (<span id="remove-whitelisted-count">0</span>)
                     </button>
                 </div>
             </section>

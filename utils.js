@@ -57,7 +57,8 @@ export const getUsersForDisplay = (results, whitelistedResults, currentTab, sear
         const isWhitelisted = whitelistedResults.some(u => u.id === user.id);
 
         // Tab filtering
-        if (currentTab === "snakes" && isWhitelisted) continue;
+        // Logic: Whitelisted users should ONLY appear in the 'whitelisted' tab.
+        if (isWhitelisted && currentTab !== "whitelisted") continue;
         if (currentTab === "whitelisted" && !isWhitelisted) continue;
 
         // Attribute filtering
@@ -71,8 +72,10 @@ export const getUsersForDisplay = (results, whitelistedResults, currentTab, sear
         // if (!filter.showFollowers && user.follows_viewer) continue; -> Skip followers
         // if (!filter.showNonFollowers && !user.follows_viewer) continue; -> Skip non-followers
 
-        if (!filter.showFollowers && user.follows_viewer) continue;
-        if (!filter.showNonFollowers && !user.follows_viewer) continue;
+        if (currentTab !== 'snakes' && currentTab !== 'whitelisted') {
+            if (!filter.showFollowers && user.follows_viewer) continue;
+            if (!filter.showNonFollowers && !user.follows_viewer) continue;
+        }
 
         if (!filter.showWithOutProfilePicture && WITHOUT_PROFILE_PICTURE_URL_IDS.some(id => user.profile_pic_url.includes(id))) continue;
 

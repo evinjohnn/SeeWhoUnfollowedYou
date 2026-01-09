@@ -183,15 +183,21 @@ const startScanProcess = async (isAuto = false) => {
         const storage = await chrome.storage.local.get(['lastScanResults']);
         const lastScan = storage.lastScanResults || []; // Array of users
 
+        let newSnakes = [];
+
         if (lastScan.length > 0) {
             // 2. Identify Snakes:
             // Users who were in lastScan (I followed them) 
             // BUT are NOT in masterState.results (I don't follow them anymore)
 
             const currentIds = new Set(masterState.results.map(u => u.id));
-            const newSnakes = lastScan.filter(oldUser => !currentIds.has(oldUser.id));
+            newSnakes = lastScan.filter(oldUser => !currentIds.has(oldUser.id));
 
-            // Add to master snakes list (avoid duplicates)
+            // [FIX] Clean up existing snakes: 
+            // If a known snake is now in currentIds (followed back), remove them from snakes list
+            masterState.snakes = masterState.snakes.filter(snake => !currentIds.has(snake.id));
+
+            // Add new snakes to master list (avoid duplicates)
             const existingSnakeIds = new Set(masterState.snakes.map(s => s.id));
             newSnakes.forEach(snake => {
                 if (!existingSnakeIds.has(snake.id)) {
@@ -209,7 +215,9 @@ const startScanProcess = async (isAuto = false) => {
         // Also save to scan history for comparison
         const currentScanData = {
             timestamp: Date.now(),
-            followingCount: masterState.results.length
+            followingCount: masterState.results.length,
+            followersCount: masterState.results.length, // Using result length as proxy for now if followers not separately tracked
+            newSnakesCount: newSnakes.length
         };
 
         // Load existing scan history

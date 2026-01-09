@@ -247,14 +247,32 @@ button {
     align-items: center;
     text-align: center;
     background: radial-gradient(circle at center, rgba(0, 229, 255, 0.03) 0%, transparent 70%);
+    overflow: hidden;
+    /* CRITICAL: Override .view auto scroll */
+    height: 100%;
 }
 
 .hero-section {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--space-xl);
-    padding: var(--space-lg) 0;
+    /* gap: var(--space-xl);  REMOVED GAP to let flex control spacing */
+    padding: var(--space-md);
+    /* Standard padding */
+    width: 100%;
+    height: 100%;
+    /* Force full height */
+    overflow: hidden;
+    /* Trap content */
+    justify-content: flex-start;
+    /* Stack from top */
+}
+
+/* Specific override for returning user state to handle distribution */
+#returning-user-state {
+    gap: 12px;
+    /* Controlled gap */
+    padding-bottom: 0;
 }
 
 .btn-primary-large {
@@ -354,11 +372,17 @@ button {
     display: flex;
     flex-direction: column;
     align-items: center;
-    gap: var(--space-md);
-    padding: var(--space-md);
+    justify-content: center;
+    /* Center vertical */
+    /* Stack from top */
+    gap: 8px;
+    /* Tight gap */
+    padding: 16px 4px;
+    /* Edge-to-edge width */
     width: 100%;
     height: 100%;
-    overflow-y: auto;
+    overflow: hidden;
+    /* CRITICAL: No page scroll */
 }
 
 .dashboard-section.hidden {
@@ -394,19 +418,37 @@ button {
 /* Large Summary Container (Greeting Page) - Apple-inspired */
 .summary-container-large {
     width: 100%;
+    /* flex: 1;  REMOVED to allow rectangular shape */
+    /* Grow to fill available space */
+    min-height: 0;
+    max-height: 85%;
+    /* Prevent overflow */
+    /* Allow shrinking */
+    display: flex;
+    /* Flex column for internal layout */
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    /* Content starts at top */
+
     background: linear-gradient(165deg,
             rgba(255, 255, 255, 0.05) 0%,
             rgba(255, 255, 255, 0.01) 100%);
     border: 1px solid var(--glass-border);
-    border-radius: 32px;
-    padding: 56px 32px;
+    border-radius: 24px;
+    padding: 16px 16px 20px 16px;
+    /* Tight padding to accomodate graph */
+    /* Reduced vertical padding */
     text-align: center;
     box-shadow:
         0 24px 48px rgba(0, 0, 0, 0.4),
         inset 0 1px 1px rgba(255, 255, 255, 0.05);
     backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
-    animation: glass-glow 8s ease-in-out infinite;
+    animation: none;
+    /* Removed animation for stability */
+    overflow: hidden;
+    /* Clip everything */
 }
 
 @keyframes glass-glow {
@@ -424,16 +466,19 @@ button {
 }
 
 .summary-title-large {
-    font-size: 13px;
+    font-size: 11px;
+    /* Smaller label */
     font-weight: var(--fw-semibold);
     color: var(--text-tertiary);
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    margin-bottom: var(--space-lg);
+    margin-bottom: 12px;
+    /* Reduced margin */
 }
 
 .summary-sentence-large {
-    font-size: 28px;
+    font-size: 24px;
+    /* Smaller from 28px */
     font-weight: var(--fw-bold);
     color: #FFFFFF;
     line-height: 1.2;
@@ -531,15 +576,30 @@ button {
 /* Timeline View */
 .timeline-container {
     width: 100%;
-    margin-top: 24px;
+    flex: 1;
+    /* Take remaining space in card */
+    min-height: 0;
+    /* Allow shrinking */
+    margin-top: 4px;
+    /* Reduced to balance with tracker margin */
     margin-bottom: 0;
     padding: 0;
+    overflow-y: auto;
+    /* Internal scroll only */
+    scrollbar-width: none;
+    /* Hide scrollbar Firefox */
+}
+
+.timeline-container::-webkit-scrollbar {
+    display: none;
+    /* Hide scrollbar Chrome/Safari */
 }
 
 .timeline-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 12px;
+    /* Equal to space between graph and list */
 }
 
 .timeline-item {
@@ -888,7 +948,12 @@ button {
 #view-results {
     padding: 0;
     display: flex;
+    /* CRITICAL: Flex column */
     flex-direction: column;
+    height: 100%;
+    /* Full height */
+    overflow: hidden;
+    /* No page scroll */
 }
 
 .results-header {
@@ -1137,7 +1202,11 @@ button {
 /* User List */
 .user-list {
     flex: 1;
+    /* Take remaining space */
+    min-height: 0;
+    /* Allow resizing */
     overflow-y: auto;
+    /* Internal scroll */
     padding: var(--space-sm);
     /* padding-bottom for sticky footer */
     padding-bottom: 80px;
@@ -1304,10 +1373,46 @@ button {
     padding: var(--space-md);
     background: linear-gradient(to top, var(--bg-app) 80%, transparent);
     pointer-events: none;
+    display: flex;
+    /* Side-by-side layout */
+    gap: 12px;
+}
+
+.btn-secondary-block {
+    flex: 1;
+    /* Share space */
+    width: auto;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--text-secondary);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-pill);
+    font-weight: var(--fw-semibold);
+    font-size: 13px;
+    /* Slightly smaller */
+    cursor: pointer;
+    transition: all var(--duration-fast);
+    pointer-events: auto;
+    margin-bottom: 0;
+    /* Align with neighbor */
+}
+
+.btn-secondary-block:not(:disabled):hover {
+    background: var(--accent-primary);
+    color: #000;
+    border-color: var(--accent-primary);
+    box-shadow: 0 4px 12px rgba(0, 229, 255, 0.3);
+}
+
+.btn-secondary-block:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
 }
 
 .btn-danger-block {
-    width: 100%;
+    flex: 1;
+    /* Share space */
+    width: auto;
     padding: 12px;
     background: rgba(248, 81, 73, 0.1);
     color: var(--status-error);
@@ -1509,6 +1614,81 @@ button {
 }
 
 
+
+
+/* Clout Tracker (Restored Big Size) */
+.clout-tracker {
+    width: 100%;
+    margin-top: 12px;
+    margin-bottom: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.clout-tracker.hidden {
+    display: none;
+}
+
+.clout-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 8px;
+}
+
+.clout-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-tertiary);
+    font-weight: 600;
+}
+
+.clout-change {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.clout-change.positive {
+    color: var(--status-success);
+}
+
+.clout-change.negative {
+    color: var(--status-error);
+}
+
+.growth-sparkline {
+    width: 100%;
+    min-height: 80px;
+    /* BIG / Restored Size */
+    flex-shrink: 0;
+    /* Keep size stable */
+    background: rgba(0, 0, 0, 0.2);
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    position: relative;
+    overflow: hidden;
+}
+
+.growth-sparkline svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.sparkline-path {
+    fill: none;
+    stroke: var(--accent-primary);
+    stroke-width: 2;
+    filter: drop-shadow(0 0 4px var(--accent-glow));
+}
+
+.sparkline-fill {
+    fill: url(#sparkline-gradient);
+    opacity: 0.2;
+}
 
 /* Scrollbar */
 ::-webkit-scrollbar {

@@ -39,6 +39,8 @@ const ui = {
     btnScan: document.getElementById('btn-scan'),
     btnSettings: document.getElementById('btn-settings'),
     btnUnfollowSelected: document.getElementById('btn-unfollow-selected'),
+    btnWhitelistSelected: document.getElementById('btn-whitelist-selected'),
+    btnRemoveSelected: document.getElementById('btn-remove-whitelisted-selected'),
     scanProgress: document.getElementById('scan-progress'),
     scanPercentage: document.getElementById('scan-percentage'),
     scanningText: document.getElementById('scanning-text'),
@@ -105,16 +107,16 @@ const formatRelativeTime = (timestamp) => {
 
 // -- Generate Summary Text --
 // Compares current scan with previous to generate a human-readable summary sentence
-const generateSummaryText = (currentResults, snakes, lastScanTime) => {
-    const snakesCount = snakes?.length || 0;
-    const followingCount = currentResults?.length || 0;
+const generateSummaryText = (currentResults, snakes, lastScanTime, newSnakesCount) => {
+    // Prefer explicit newSnakesCount from scan history if available
+    const lossCount = typeof newSnakesCount === 'number' ? newSnakesCount : (snakes?.length || 0);
     const timeAgo = formatRelativeTime(lastScanTime);
 
     // Build summary parts
     const parts = [];
 
-    if (snakesCount > 0) {
-        parts.push(`${snakesCount} ${snakesCount === 1 ? 'person' : 'people'} unfollowed you`);
+    if (lossCount > 0) {
+        parts.push(`${lossCount} ${lossCount === 1 ? 'person' : 'people'} unfollowed you`);
     }
 
     if (parts.length === 0) {
@@ -329,22 +331,119 @@ const renderTimeline = async () => {
     }
 };
 
-// -- Check if Returning User --
-// Decides which state to show BEFORE rendering to avoid flash
+// -- Profile Redirection --
+ui.resultsList.addEventListener('click', (e) => {
+    const item = e.target.closest('.user-item');
+    if (!item) return;
+
+    // Ignore if clicking checkbox or action buttons
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('.action-btn')) return;
+
+    // Find user ID/Username from data attribute (need to add to render)
+    // For now, let's extract from the DOM if we don't reload renderResults
+    const username = item.querySelector('.username').textContent;
+    if (username) {
+        chrome.tabs.create({ url: `https://www.instagram.com/${username}/` });
+    }
+});
+
+ui.tabs.forEach(tab => {
+    tab.addEventListener('click', (e) => switchTab(e.currentTarget.dataset.tab));
+});
+
+// ... (existing listeners) ...
+
+// -- Clout Tracker Renderer --
+const renderCloutTracker = (scanHistory) => {
+    // DOM Elements for Clout Tracker
+    const cloutTracker = document.querySelector('.clout-tracker');
+    const growthSparkline = document.getElementById('growth-sparkline');
+    const cloutChange = document.getElementById('clout-change');
+
+    if (!scanHistory || scanHistory.length < 2) {
+        if (cloutTracker) cloutTracker.classList.add('hidden');
+        return;
+    }
+
+    if (cloutTracker) cloutTracker.classList.remove('hidden');
+
+    // Take last 7 data points, preferring followersCount (people who follow you back)
+    const points = scanHistory.slice(-7).map(h => h.followersCount ?? h.followingCount);
+
+    // Safety check for points
+    if (points.length < 2) return;
+
+    const min = Math.min(...points);
+    const max = Math.max(...points);
+    const range = max - min || 1;
+
+    // SVG Generation Constants
+    const width = 200;
+    const height = 40;
+    const padding = 2; // Small vertical padding for SVG
+    const step = width / (points.length - 1);
+
+    // Calculate Y coordinates
+    const getY = (val) => height - padding - ((val - min) / range * (height - padding * 2));
+
+    let pathData = `M 0 ${getY(points[0])}`;
+    for (let i = 1; i < points.length; i++) {
+        // Simple cubic bezier smoothing
+        const cp1x = (i - 1) * step + step / 2;
+        const cp2x = i * step - step / 2;
+        pathData += ` C ${cp1x} ${getY(points[i - 1])} ${cp2x} ${getY(points[i])} ${i * step} ${getY(points[i])}`;
+    }
+
+    // Gradient and line
+    const svg = `
+        <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
+            <defs>
+                <linearGradient id="cloutGradient" x1="0%" y1="0%" x2="0%" y2="100%">
+                    <stop offset="0%" style="stop-color:var(--accent-primary);stop-opacity:0.25" />
+                    <stop offset="100%" style="stop-color:var(--accent-primary);stop-opacity:0" />
+                </linearGradient>
+            </defs>
+            <path d="${pathData} L ${width} ${height} L 0 ${height} Z" fill="url(#cloutGradient)" style="opacity: 0.5;" />
+            <path d="${pathData}" fill="none" stroke="var(--accent-primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+    `;
+
+    if (growthSparkline) growthSparkline.innerHTML = svg;
+
+    // Calculate Latest Scan Change
+    const latestHistory = scanHistory[scanHistory.length - 1];
+    const newSnakesCount = latestHistory?.newSnakesCount ?? 0;
+    const diff = -newSnakesCount; // Show as negative loss by default if snakes
+
+    if (cloutChange) {
+        cloutChange.textContent = diff > 0 ? `+${diff}` : diff; // 0 shows as "0"
+        cloutChange.style.color = diff >= 0 ? 'var(--status-success)' : 'var(--status-error)';
+        cloutChange.style.background = 'transparent'; // Remove background
+    }
+};
+
 const checkReturningUser = async () => {
-    const storage = await chrome.storage.local.get(['lastScanResults', 'lastScanTime', 'snakes']);
+    const storage = await chrome.storage.local.get(['lastScanResults', 'lastScanTime', 'snakes', 'scanHistory']);
     const hasPreviousScan = storage.lastScanResults && storage.lastScanResults.length > 0;
 
     if (hasPreviousScan) {
+        // Populate global state immediately
+        state.results = storage.lastScanResults;
+        state.snakes = storage.snakes || [];
+
         // Show returning user view with summary
         ui.firstRunState.classList.add('hidden');
         ui.returningUserState.classList.remove('hidden');
 
         // Generate and display summary sentence
+        const latestHistory = storage.scanHistory?.[storage.scanHistory.length - 1];
+        const newSnakesCount = latestHistory?.newSnakesCount ?? 0;
+
         const summaryText = generateSummaryText(
             storage.lastScanResults,
             storage.snakes,
-            storage.lastScanTime
+            storage.lastScanTime,
+            newSnakesCount
         );
         ui.summarySentence.textContent = summaryText;
 
@@ -353,6 +452,9 @@ const checkReturningUser = async () => {
 
         // Render Timeline
         renderTimeline();
+
+        // Render Clout Tracker
+        renderCloutTracker(storage.scanHistory);
     } else {
         // First run - show simple scan button only
         ui.firstRunState.classList.remove('hidden');
@@ -394,7 +496,27 @@ const init = async () => {
         renderResults();
     });
 
+    // Profile Redirection (Delegated)
+    ui.resultsList.addEventListener('click', (e) => {
+        const item = e.target.closest('.user-item');
+        if (!item) return;
+
+        // Ignore clicks on checkbox or any interactive buttons inside
+        if (e.target.type === 'checkbox' || e.target.tagName === 'BUTTON') return;
+
+        // Find the username element
+        const usernameEl = item.querySelector('.user-name');
+        if (usernameEl) {
+            const username = usernameEl.textContent.trim();
+            if (username) {
+                chrome.tabs.create({ url: `https://www.instagram.com/${username}/` });
+            }
+        }
+    });
+
     ui.btnUnfollowSelected.addEventListener('click', startUnfollowProcess);
+    if (ui.btnWhitelistSelected) ui.btnWhitelistSelected.addEventListener('click', startWhitelistProcess);
+    if (ui.btnRemoveSelected) ui.btnRemoveSelected.addEventListener('click', startRemoveFromWhitelistProcess);
 
     // Load Settings
     const settings = await chrome.storage.local.get(['enableAutoScan']);
@@ -513,10 +635,76 @@ const startUnfollowProcess = async () => {
     await chrome.runtime.sendMessage({ type: 'START_UNFOLLOW', users });
 };
 
+const startWhitelistProcess = async () => {
+    if (state.selectedUsers.size === 0) return;
+
+    const usersToWhitelist = Array.from(state.selectedUsers);
+
+    // We need the full user objects, not just IDs
+    const userObjects = usersToWhitelist.map(id => {
+        const source = state.currentTab === 'snakes' ? state.snakes : state.results;
+        return source.find(u => u.id === id);
+    }).filter(Boolean);
+
+    for (const user of userObjects) {
+        state.whitelisted = addToWhitelist(user);
+    }
+
+    state.selectedUsers.clear();
+    updateSelectionUI();
+    renderCounts();
+    renderResults();
+
+    showToast(`Added ${userObjects.length} users to whitelist`, 'success');
+};
+
+const startRemoveFromWhitelistProcess = async () => {
+    if (state.selectedUsers.size === 0) return;
+
+    const usersToRemove = Array.from(state.selectedUsers);
+
+    for (const userId of usersToRemove) {
+        state.whitelisted = removeFromWhitelist(userId);
+    }
+
+    state.selectedUsers.clear();
+    updateSelectionUI();
+    renderCounts();
+    renderResults();
+
+    showToast(`Removed ${usersToRemove.length} users from whitelist`, 'success');
+};
+
 // -- UI Logic --
 const switchView = (viewName) => {
     Object.values(views).forEach(el => el.classList.remove('active'));
     views[viewName].classList.add('active');
+};
+
+const updateSelectionUI = () => {
+    const count = state.selectedUsers.size;
+
+    // Update main counter (used in unfollow button)
+    if (ui.selectedCount) ui.selectedCount.textContent = count > 0 ? count : 0;
+
+    const hasSelection = count > 0;
+
+    // Unfollow Button
+    ui.btnUnfollowSelected.disabled = !hasSelection;
+
+    // Whitelist Button
+    if (ui.btnWhitelistSelected) {
+        ui.btnWhitelistSelected.disabled = !hasSelection;
+        const whitelistCounter = document.getElementById('whitelist-selected-count');
+        if (whitelistCounter) whitelistCounter.textContent = count > 0 ? count : 0;
+    }
+
+    // Remove Button
+    if (ui.btnRemoveSelected) {
+        ui.btnRemoveSelected.disabled = !hasSelection;
+        const removeCounter = document.getElementById('remove-whitelisted-count');
+        if (removeCounter) removeCounter.textContent = count > 0 ? count : 0;
+    }
 };
 
 const toggleModal = (modal, show) => {
@@ -539,14 +727,22 @@ const switchTab = (tabName) => {
         t.classList.toggle('active', t.dataset.tab === tabName);
     });
 
-    // Show/Hide Unfollow Button (Only for Strangers)
-    // We target the footer container to hide the whole section
+    // Show/Hide Footer based on tab
+    // Strangers: Show (Whitelist/Unfollow)
+    // Snakes: Hide (Read-only)
+    // Whitelisted: Show (Remove)
     const footer = ui.btnUnfollowSelected.parentElement;
-    if (tabName === 'strangers') {
-        footer.classList.remove('hidden');
-    } else {
+    if (tabName === 'snakes') {
         footer.classList.add('hidden');
+    } else {
+        footer.classList.remove('hidden');
     }
+
+    // Toggle specific buttons based on tab
+    const isWhitelistedTab = tabName === 'whitelisted';
+    if (ui.btnWhitelistSelected) ui.btnWhitelistSelected.classList.toggle('hidden', isWhitelistedTab);
+    if (ui.btnUnfollowSelected) ui.btnUnfollowSelected.classList.toggle('hidden', isWhitelistedTab);
+    if (ui.btnRemoveSelected) ui.btnRemoveSelected.classList.toggle('hidden', !isWhitelistedTab);
 
     state.selectedUsers.clear();
     updateSelectionUI();
@@ -577,6 +773,8 @@ const renderResults = () => {
     let sourceList = [];
     if (state.currentTab === 'snakes') {
         sourceList = state.snakes;
+    } else if (state.currentTab === 'whitelisted') {
+        sourceList = state.whitelisted;
     } else {
         sourceList = state.results;
     }
@@ -615,7 +813,7 @@ const renderResults = () => {
              ${privateTag}
            </div>
          </div>
-         <input type="checkbox" class="user-select-checkbox" ${isSelected ? 'checked' : ''}>
+         ${state.currentTab !== 'snakes' ? `<input type="checkbox" class="user-select-checkbox" ${isSelected ? 'checked' : ''}>` : ''}
        `;
 
         // Load image through background proxy
@@ -642,17 +840,18 @@ const renderResults = () => {
             fallback.style.display = 'flex';
         }
 
-
-
-        el.addEventListener('click', (e) => {
-            if (e.target.type !== 'checkbox') {
-                const cb = el.querySelector('.user-select-checkbox');
-                cb.checked = !cb.checked;
-                toggleUserSelection(user.id, cb.checked);
-            } else {
-                toggleUserSelection(user.id, e.target.checked);
-            }
-        });
+        // Only attach selection toggle if NOT snakes tab
+        if (state.currentTab !== 'snakes') {
+            el.addEventListener('click', (e) => {
+                if (e.target.type !== 'checkbox') {
+                    const cb = el.querySelector('.user-select-checkbox');
+                    cb.checked = !cb.checked;
+                    toggleUserSelection(user.id, cb.checked);
+                } else {
+                    toggleUserSelection(user.id, e.target.checked);
+                }
+            });
+        }
         fragment.appendChild(el);
     });
     ui.resultsList.appendChild(fragment);
@@ -662,12 +861,6 @@ const toggleUserSelection = (userId, isSelected) => {
     if (isSelected) state.selectedUsers.add(userId);
     else state.selectedUsers.delete(userId);
     updateSelectionUI();
-};
-
-const updateSelectionUI = () => {
-    const count = state.selectedUsers.size;
-    ui.selectedCount.textContent = count;
-    ui.btnUnfollowSelected.disabled = count === 0;
 };
 
 const saveSettings = async (e) => {
