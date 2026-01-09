@@ -273,7 +273,7 @@ const renderTimeline = async () => {
 
     // 3. Render Items
     const fragment = document.createDocumentFragment();
-    const buckets = [groups.today, groups.yesterday, groups.thisWeek];
+    const buckets = [groups.today]; // Only show Today
 
     let hasItems = false;
 

@@ -436,10 +436,10 @@ button {
             rgba(255, 255, 255, 0.05) 0%,
             rgba(255, 255, 255, 0.01) 100%);
     border: 1px solid var(--glass-border);
-    border-radius: 24px;
-    padding: 16px 16px 20px 16px;
-    /* Tight padding to accomodate graph */
-    /* Reduced vertical padding */
+    border-radius: 20px;
+    /* Slightly tighter radius */
+    padding: 20px 20px 16px 20px;
+    /* Apple-style: more top, less bottom */
     text-align: center;
     box-shadow:
         0 24px 48px rgba(0, 0, 0, 0.4),
@@ -467,32 +467,36 @@ button {
 }
 
 .summary-title-large {
-    font-size: 11px;
-    /* Smaller label */
-    font-weight: var(--fw-semibold);
+    font-size: 10px;
+    /* Smaller, more refined */
+    font-weight: 600;
     color: var(--text-tertiary);
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    margin-bottom: 12px;
-    /* Reduced margin */
+    letter-spacing: 0.1em;
+    /* More breathable */
+    margin-bottom: 8px;
+    /* Tighter to headline */
 }
 
 .summary-sentence-large {
-    font-size: 24px;
-    /* Smaller from 28px */
-    font-weight: var(--fw-bold);
+    font-size: 22px;
+    /* Slightly smaller for elegance */
+    font-weight: 700;
     color: #FFFFFF;
-    line-height: 1.2;
-    margin: 0;
-    letter-spacing: -0.04em;
+    line-height: 1.25;
+    margin: 0 0 4px 0;
+    /* Small bottom margin */
+    letter-spacing: -0.03em;
 }
 
 /* Cooldown Indicator */
 .cooldown-indicator {
-    margin-top: var(--space-md);
+    margin-top: 12px;
+    /* Tighter to button */
     display: flex;
     flex-direction: column;
-    gap: var(--space-xs);
+    gap: 4px;
+    /* Compact */
 }
 
 .cooldown-info {
@@ -577,18 +581,12 @@ button {
 /* Timeline View */
 .timeline-container {
     width: 100%;
-    flex: 1;
-    /* Take remaining space in card */
-    min-height: 0;
-    /* Allow shrinking */
-    margin-top: 4px;
-    /* Reduced to balance with tracker margin */
+    margin-top: 8px;
+    /* Balanced spacing from graph */
     margin-bottom: 0;
     padding: 0;
     overflow-y: auto;
-    /* Internal scroll only */
     scrollbar-width: none;
-    /* Hide scrollbar Firefox */
 }
 
 .timeline-container::-webkit-scrollbar {
@@ -607,10 +605,13 @@ button {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    padding: 10px 14px;
-    background: rgba(255, 255, 255, 0.03);
-    border-radius: 12px;
-    border: 1px solid rgba(255, 255, 255, 0.05);
+    padding: 12px 16px;
+    /* More generous padding */
+    background: rgba(255, 255, 255, 0.02);
+    /* Subtler */
+    border-radius: 10px;
+    /* Apple-like radius */
+    border: 1px solid rgba(255, 255, 255, 0.04);
     transition: background 0.2s ease;
 }
 
