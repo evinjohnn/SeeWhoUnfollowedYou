@@ -487,14 +487,7 @@ const init = async () => {
         renderResults();
     });
 
-    ui.filterVerified.addEventListener('change', (e) => {
-        state.filters.showVerified = e.target.checked;
-        renderResults();
-    });
-    ui.filterPrivate.addEventListener('change', (e) => {
-        state.filters.showPrivate = e.target.checked;
-        renderResults();
-    });
+
 
     // Profile Redirection (Delegated)
     ui.resultsList.addEventListener('click', (e) => {

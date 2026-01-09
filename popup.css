@@ -225,7 +225,8 @@ button {
     left: 0;
     width: 100%;
     height: 100%;
-    padding: var(--space-md);
+    padding: 8px;
+    /* Equal padding on all sides */
     opacity: 0;
     visibility: hidden;
     transition: opacity var(--duration-medium) ease, transform var(--duration-medium) ease;
@@ -243,7 +244,8 @@ button {
 #view-start {
     display: flex;
     flex-direction: column;
-    justify-content: center;
+    justify-content: flex-start;
+    /* Align to TOP, not center */
     align-items: center;
     text-align: center;
     background: radial-gradient(circle at center, rgba(0, 229, 255, 0.03) 0%, transparent 70%);
@@ -257,8 +259,8 @@ button {
     flex-direction: column;
     align-items: center;
     /* gap: var(--space-xl);  REMOVED GAP to let flex control spacing */
-    padding: var(--space-md);
-    /* Standard padding */
+    padding: 8px;
+    /* Equal padding on all sides */
     width: 100%;
     height: 100%;
     /* Force full height */
@@ -277,9 +279,10 @@ button {
 
 .btn-primary-large {
     position: relative;
-    background: #FFFFFF;
-    color: #000000;
-    border: none;
+    background: rgba(0, 229, 255, 0.15);
+    /* Darker/Dimmed Cyan */
+    color: var(--accent-primary);
+    border: 1px solid rgba(0, 229, 255, 0.3);
     padding: 18px 48px;
     font-size: 15px;
     font-weight: var(--fw-bold);
@@ -287,16 +290,17 @@ button {
     cursor: pointer;
     overflow: hidden;
     transition: all 0.4s cubic-bezier(0.2, 1, 0.3, 1);
-    box-shadow:
-        0 12px 32px rgba(255, 255, 255, 0.12),
-        0 4px 8px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
     letter-spacing: -0.01em;
 }
 
 .btn-primary-large:hover {
     transform: translateY(-2px) scale(1.02);
-    box-shadow: 0 10px 40px rgba(255, 255, 255, 0.25);
-    background: #fff;
+    background: var(--accent-primary);
+    /* Full Accent Cyan */
+    color: #000000;
+    border-color: var(--accent-primary);
+    box-shadow: 0 10px 40px rgba(0, 229, 255, 0.3);
 }
 
 .btn-primary-large:active {
@@ -372,10 +376,10 @@ button {
     display: flex;
     flex-direction: column;
     align-items: center;
-    justify-content: center;
-    /* Center vertical */
+    justify-content: flex-start;
+    /* Align to top */
     /* Stack from top */
-    gap: 8px;
+    gap: 12px;
     /* Tight gap */
     padding: 16px 4px;
     /* Edge-to-edge width */
@@ -418,11 +422,8 @@ button {
 /* Large Summary Container (Greeting Page) - Apple-inspired */
 .summary-container-large {
     width: 100%;
-    /* flex: 1;  REMOVED to allow rectangular shape */
-    /* Grow to fill available space */
+    /* No flex: 1 - let it size to content for rectangular shape */
     min-height: 0;
-    max-height: 85%;
-    /* Prevent overflow */
     /* Allow shrinking */
     display: flex;
     /* Flex column for internal layout */
