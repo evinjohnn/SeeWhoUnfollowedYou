@@ -1008,9 +1008,9 @@ const startTour = async () => {
     // Safety check: if tour UI elements are missing (e.g. after revert), do not run tour
     if (!tourUI.overlay) return;
 
-    // Check if tour already completed
-    const storage = await chrome.storage.local.get(['onboardingComplete']);
-    if (storage.onboardingComplete) return;
+    // TEST MODE: Comment out to always show tour
+    // const storage = await chrome.storage.local.get(['onboardingComplete']);
+    // if (storage.onboardingComplete) return;
 
     tourActive = true;
     currentTourStep = 0;

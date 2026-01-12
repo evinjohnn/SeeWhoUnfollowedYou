@@ -245,6 +245,19 @@
 
     <div id="toast-container"></div>
 
+    <!-- Onboarding Tour Overlay -->
+    <div id="tour-overlay" class="tour-overlay hidden"></div>
+    <div id="tour-tooltip" class="tour-tooltip hidden">
+        <p id="tour-message" class="tour-message"></p>
+        <div class="tour-footer">
+            <span id="tour-step-indicator" class="tour-step-indicator"></span>
+            <div class="tour-buttons">
+                <button id="tour-skip" class="tour-btn tour-btn-skip">Skip</button>
+                <button id="tour-next" class="tour-btn tour-btn-next">Next</button>
+            </div>
+        </div>
+    </div>
+
     <script src="utils.js" type="module"></script>
     <script src="popup.js" type="module"></script>
 </body>

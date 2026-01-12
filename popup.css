@@ -300,6 +300,12 @@ button {
     padding-bottom: 0;
 }
 
+/* First run state - center content vertically */
+#first-run-state {
+    justify-content: center;
+    gap: var(--space-md);
+}
+
 .btn-primary-large {
     position: relative;
     margin-top: 24px;
@@ -332,6 +338,20 @@ button {
     transform: translateY(1px) scale(0.98);
 }
 
+/* Ensure button text inherits parent color, not generic .btn-text grey */
+.btn-primary-large .btn-text {
+    color: inherit;
+    font-size: inherit;
+    background: none;
+    border: none;
+    padding: 0;
+}
+
+.btn-primary-large .btn-text:hover {
+    color: inherit;
+    /* Prevent white hover from generic .btn-text:hover */
+}
+
 .btn-shine {
     position: absolute;
     top: 0;
@@ -360,15 +380,15 @@ button {
 .welcome-icon {
     width: 80px;
     height: 80px;
-    background: radial-gradient(135deg, rgba(255, 255, 255, 0.05) 0%, rgba(255, 255, 255, 0.01) 100%);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
+    border: none;
     border-radius: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #FFFFFF;
+    color: #000;
     margin-bottom: var(--space-md);
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 0 30px var(--accent-glow), 0 10px 30px rgba(0, 0, 0, 0.3);
 }
 
 .welcome-text {
@@ -1718,4 +1738,138 @@ button {
 
 ::-webkit-scrollbar-thumb:hover {
     background: var(--text-tertiary);
+}
+
+/* =========================================
+   Onboarding Tour Styles (Restored)
+   ========================================= */
+#tour-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    /* We used box-shadow hole technique or just overlay? 
+       For simplicity, let's just make it a click-blocker for now or simple dim */
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 9998;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+#tour-overlay.active {
+    opacity: 1;
+    pointer-events: auto;
+}
+
+.tour-tooltip {
+    position: absolute;
+    background: var(--bg-card);
+    border: 1px solid var(--accent-primary);
+    box-shadow: 0 0 20px rgba(0, 229, 255, 0.2);
+    border-radius: 12px;
+    padding: 16px;
+    width: 260px;
+    z-index: 9999;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.3s ease, transform 0.3s ease;
+    pointer-events: none;
+}
+
+.tour-tooltip.active {
+    opacity: 1;
+    transform: translateY(0);
+    pointer-events: auto;
+}
+
+.tour-content h3 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.tour-content p {
+    margin: 0 0 16px 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.4;
+}
+
+.tour-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.tour-progress {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-family: monospace;
+}
+
+.tour-controls {
+    display: flex;
+    gap: 8px;
+}
+
+.btn-text {
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 4px 8px;
+}
+
+.btn-text:hover {
+    color: var(--text-primary);
+}
+
+.btn-primary-small {
+    background: var(--accent-primary);
+    color: #000;
+    border: none;
+    border-radius: 4px;
+    padding: 4px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.btn-primary-small:hover {
+    filter: brightness(1.1);
+}
+
+.tour-arrow {
+    position: absolute;
+    width: 12px;
+    height: 12px;
+    background: var(--bg-card);
+    border-left: 1px solid var(--accent-primary);
+    border-bottom: 1px solid var(--accent-primary);
+    transform: rotate(-45deg);
+    bottom: -7px;
+    left: 50%;
+    margin-left: -6px;
+}
+
+/* Arrow Variations */
+.tour-tooltip[data-placement="top"] .tour-arrow {
+    bottom: -7px;
+    top: auto;
+    border-top: none;
+    border-right: none;
+    border-left: 1px solid var(--accent-primary);
+    border-bottom: 1px solid var(--accent-primary);
+}
+
+.tour-tooltip[data-placement="bottom"] .tour-arrow {
+    top: -7px;
+    bottom: auto;
+    border-bottom: none;
+    border-left: none;
+    border-top: 1px solid var(--accent-primary);
+    border-right: 1px solid var(--accent-primary);
 }
