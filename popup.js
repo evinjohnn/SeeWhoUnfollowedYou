@@ -231,16 +231,31 @@ const renderTimeline = async () => {
     const now = Date.now();
     const ONE_DAY = 24 * 60 * 60 * 1000;
 
-    // 1. Count Unfollows (Snakes) per bucket
+    // 1. Count Unfollows per bucket
+    // For "Today": Use only the LATEST scan's newSnakesCount (not cumulative)
+    // This ensures forced scans refresh the Today count rather than accumulating
+
+    // Get the most recent scan for "Today"
+    const sortedHistory = [...history].sort((a, b) => b.timestamp - a.timestamp);
+    const latestScan = sortedHistory[0];
+
+    if (latestScan && (now - latestScan.timestamp) < ONE_DAY) {
+        // Latest scan is from today - use its snake count
+        groups.today.unfollows = latestScan.newSnakesCount || 0;
+    } else {
+        // No scan today
+        groups.today.unfollows = 0;
+    }
+
+    // For yesterday and this week, count snakes by detected_at
+    // (these are historical and don't need the "refresh" behavior)
     snakes.forEach(snake => {
         if (!snake.detected_at) return;
         const diff = now - snake.detected_at;
 
-        if (diff < ONE_DAY) {
-            groups.today.unfollows++;
-        } else if (diff < 2 * ONE_DAY) {
+        if (diff >= ONE_DAY && diff < 2 * ONE_DAY) {
             groups.yesterday.unfollows++;
-        } else if (diff < 7 * ONE_DAY) {
+        } else if (diff >= 2 * ONE_DAY && diff < 7 * ONE_DAY) {
             groups.thisWeek.unfollows++;
         }
     });
@@ -249,10 +264,7 @@ const renderTimeline = async () => {
     // We need to associate history entries with buckets to find stats
     // Ideally we want: (Last scan in bucket) - (First scan in bucket/Last scan before bucket)
 
-    // Sort history newest first
-    const sortedHistory = [...history].sort((a, b) => b.timestamp - a.timestamp);
-
-    // Assign counts to buckets
+    // Assign counts to buckets (reusing sortedHistory from above)
     // We iterate history to find the 'latest' and 'earliest' for each bucket
 
     const updateBucketCounts = (bucket, entry) => {
@@ -326,26 +338,18 @@ const renderTimeline = async () => {
 
     if (hasItems) {
         ui.timelineList.appendChild(fragment);
+        ui.timelineContainer.classList.remove('hidden');
     } else {
-        ui.timelineContainer.classList.add('hidden');
+        // Show empty state instead of hiding
+        ui.timelineContainer.classList.remove('hidden');
+        const div = document.createElement('div');
+        div.className = 'timeline-item';
+        div.style.justifyContent = 'center';
+        div.style.opacity = '0.7';
+        div.innerHTML = `<span class="timeline-date">No changes recorded yet</span>`;
+        ui.timelineList.appendChild(div);
     }
 };
-
-// -- Profile Redirection --
-ui.resultsList.addEventListener('click', (e) => {
-    const item = e.target.closest('.user-item');
-    if (!item) return;
-
-    // Ignore if clicking checkbox or action buttons
-    if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('.action-btn')) return;
-
-    // Find user ID/Username from data attribute (need to add to render)
-    // For now, let's extract from the DOM if we don't reload renderResults
-    const username = item.querySelector('.username').textContent;
-    if (username) {
-        chrome.tabs.create({ url: `https://www.instagram.com/${username}/` });
-    }
-});
 
 ui.tabs.forEach(tab => {
     tab.addEventListener('click', (e) => switchTab(e.currentTarget.dataset.tab));
@@ -360,18 +364,20 @@ const renderCloutTracker = (scanHistory) => {
     const growthSparkline = document.getElementById('growth-sparkline');
     const cloutChange = document.getElementById('clout-change');
 
-    if (!scanHistory || scanHistory.length < 2) {
+    if (!scanHistory || scanHistory.length === 0) {
         if (cloutTracker) cloutTracker.classList.add('hidden');
         return;
     }
 
     if (cloutTracker) cloutTracker.classList.remove('hidden');
 
-    // Take last 7 data points, preferring followersCount (people who follow you back)
-    const points = scanHistory.slice(-7).map(h => h.followersCount ?? h.followingCount);
+    // Use actual follower counts from scan history
+    // Each scan now stores followerCount - the real follower count from profile API
+    const recentHistory = scanHistory.slice(-7); // Last 7 scans
+    const points = recentHistory.map(scan => scan.followerCount || scan.followingCount || 0);
 
-    // Safety check for points
-    if (points.length < 2) return;
+    // Allow rendering with 1 point (show flat line)
+    if (points.length === 0) return;
 
     const min = Math.min(...points);
     const max = Math.max(...points);
@@ -380,45 +386,83 @@ const renderCloutTracker = (scanHistory) => {
     // SVG Generation Constants
     const width = 200;
     const height = 40;
-    const padding = 2; // Small vertical padding for SVG
+    const padding = 2;
     const step = width / (points.length - 1);
 
     // Calculate Y coordinates
     const getY = (val) => height - padding - ((val - min) / range * (height - padding * 2));
 
     let pathData = `M 0 ${getY(points[0])}`;
-    for (let i = 1; i < points.length; i++) {
-        // Simple cubic bezier smoothing
-        const cp1x = (i - 1) * step + step / 2;
-        const cp2x = i * step - step / 2;
-        pathData += ` C ${cp1x} ${getY(points[i - 1])} ${cp2x} ${getY(points[i])} ${i * step} ${getY(points[i])}`;
+
+    if (points.length === 1) {
+        // Draw flat line across width for single point
+        pathData += ` L ${width} ${getY(points[0])}`;
+    } else {
+        for (let i = 1; i < points.length; i++) {
+            const cp1x = (i - 1) * step + step / 2;
+            const cp2x = i * step - step / 2;
+            pathData += ` C ${cp1x} ${getY(points[i - 1])} ${cp2x} ${getY(points[i])} ${i * step} ${getY(points[i])}`;
+        }
     }
 
-    // Gradient and line
+    // Determine gradient color based on trend (up = green, down = red)
+    const trendUp = points[points.length - 1] >= points[0];
+    const gradientColor = trendUp ? 'var(--status-success)' : 'var(--status-error)';
+    const strokeColor = trendUp ? 'var(--status-success)' : 'var(--status-error)';
+
     const svg = `
         <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
             <defs>
                 <linearGradient id="cloutGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" style="stop-color:var(--accent-primary);stop-opacity:0.25" />
-                    <stop offset="100%" style="stop-color:var(--accent-primary);stop-opacity:0" />
+                    <stop offset="0%" style="stop-color:${gradientColor};stop-opacity:0.25" />
+                    <stop offset="100%" style="stop-color:${gradientColor};stop-opacity:0" />
                 </linearGradient>
             </defs>
             <path d="${pathData} L ${width} ${height} L 0 ${height} Z" fill="url(#cloutGradient)" style="opacity: 0.5;" />
-            <path d="${pathData}" fill="none" stroke="var(--accent-primary)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+            <path d="${pathData}" fill="none" stroke="${strokeColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
     `;
 
     if (growthSparkline) growthSparkline.innerHTML = svg;
 
-    // Calculate Latest Scan Change
-    const latestHistory = scanHistory[scanHistory.length - 1];
-    const newSnakesCount = latestHistory?.newSnakesCount ?? 0;
-    const diff = -newSnakesCount; // Show as negative loss by default if snakes
+    // Calculate 24h change
+    // Find the reference point: the most recent scan from MORE than 24h ago
+    const now = Date.now();
+    const ONE_DAY = 24 * 60 * 60 * 1000;
+
+    const latestScan = scanHistory[scanHistory.length - 1];
+
+    // Find reference scan (most recent scan older than 24h)
+    let referenceScan = null;
+    for (let i = scanHistory.length - 2; i >= 0; i--) {
+        if (now - scanHistory[i].timestamp >= ONE_DAY) {
+            referenceScan = scanHistory[i];
+            break;
+        }
+    }
+
+    // If no scan older than 24h, use the oldest available scan
+    if (!referenceScan) {
+        referenceScan = scanHistory[0];
+    }
+
+    // Calculate follower growth/decline (use followerCount with fallback)
+    const latestFollowers = latestScan.followerCount || latestScan.followingCount || 0;
+    const referenceFollowers = referenceScan.followerCount || referenceScan.followingCount || 0;
+    const netChange = latestFollowers - referenceFollowers;
 
     if (cloutChange) {
-        cloutChange.textContent = diff > 0 ? `+${diff}` : diff; // 0 shows as "0"
-        cloutChange.style.color = diff >= 0 ? 'var(--status-success)' : 'var(--status-error)';
-        cloutChange.style.background = 'transparent'; // Remove background
+        if (netChange === 0) {
+            cloutChange.textContent = '0';
+            cloutChange.style.color = 'var(--text-secondary)';
+        } else if (netChange > 0) {
+            cloutChange.textContent = `+${netChange}`;
+            cloutChange.style.color = 'var(--status-success)';
+        } else {
+            cloutChange.textContent = `${netChange}`;
+            cloutChange.style.color = 'var(--status-error)';
+        }
+        cloutChange.style.background = 'transparent';
     }
 };
 
@@ -464,11 +508,14 @@ const checkReturningUser = async () => {
 
 // -- Init --
 const init = async () => {
-    state.whitelisted = loadWhitelist();
+    state.whitelisted = await loadWhitelist();
     renderCounts();
 
     // Check if returning user and show appropriate view (before any other rendering)
     await checkReturningUser();
+
+    // Start onboarding tour for first-time users (with small delay for DOM to settle)
+    setTimeout(() => startTour(), 500);
 
     // Listeners
     ui.btnScan.addEventListener('click', startScan);
@@ -497,11 +544,13 @@ const init = async () => {
         // Ignore clicks on checkbox or any interactive buttons inside
         if (e.target.type === 'checkbox' || e.target.tagName === 'BUTTON') return;
 
-        // Find the username element
+        // Find the username element (use .user-name class, not .username)
         const usernameEl = item.querySelector('.user-name');
         if (usernameEl) {
-            const username = usernameEl.textContent.trim();
-            if (username) {
+            // Extract just the text, removing any child elements (like verified icon)
+            const usernameNode = usernameEl.childNodes[0];
+            const username = usernameNode ? usernameNode.textContent.trim() : usernameEl.textContent.trim();
+            if (username && !username.includes('<')) { // Basic XSS protection
                 chrome.tabs.create({ url: `https://www.instagram.com/${username}/` });
             }
         }
@@ -557,6 +606,12 @@ const handleNavToggle = async () => {
         switchView('start');
         ui.btnNavToggle.textContent = 'Results';
     } else {
+        // Check if first scan has been done
+        const storage = await chrome.storage.local.get(['lastScanResults']);
+        if (!storage.lastScanResults || storage.lastScanResults.length === 0) {
+            showToast('Run your first scan to see results', 'info');
+            return;
+        }
         // Go to results page
         await showPreviousResults();
     }
@@ -588,8 +643,9 @@ const updateFromBackground = (bgState) => {
         state.status = bgState.status;
         switchView('scanning');
         ui.scanningText.textContent = bgState.status === 'scanning' ? "Scanning..." : "Unfollowing...";
+        const count = bgState.status === 'scanning' ? state.scannedCount : (bgState.unfollowedCount || 0);
         const noun = bgState.status === 'scanning' ? 'users' : 'processed';
-        ui.scanningSubtext.textContent = `${state.scannedCount} ${noun}...`;
+        ui.scanningSubtext.textContent = `${count} ${noun}...`;
         ui.scanProgress.style.width = `${state.progress}%`;
         ui.scanPercentage.textContent = `${state.progress}%`;
     } else if (bgState.status === 'idle') {
@@ -622,6 +678,14 @@ const startScan = async () => {
 
 const startUnfollowProcess = async () => {
     if (state.selectedUsers.size === 0) return;
+
+    // Safety limit to prevent Instagram rate limiting/bans
+    const MAX_UNFOLLOW_BATCH = 50;
+    if (state.selectedUsers.size > MAX_UNFOLLOW_BATCH) {
+        showToast(`Please select max ${MAX_UNFOLLOW_BATCH} users at a time to avoid rate limits`, 'error');
+        return;
+    }
+
     if (!confirm(`Unfollow ${state.selectedUsers.size} users?`)) return;
 
     const users = Array.from(state.selectedUsers);
@@ -640,7 +704,7 @@ const startWhitelistProcess = async () => {
     }).filter(Boolean);
 
     for (const user of userObjects) {
-        state.whitelisted = addToWhitelist(user);
+        state.whitelisted = await addToWhitelist(user);
     }
 
     state.selectedUsers.clear();
@@ -657,7 +721,7 @@ const startRemoveFromWhitelistProcess = async () => {
     const usersToRemove = Array.from(state.selectedUsers);
 
     for (const userId of usersToRemove) {
-        state.whitelisted = removeFromWhitelist(userId);
+        state.whitelisted = await removeFromWhitelist(userId);
     }
 
     state.selectedUsers.clear();
@@ -873,5 +937,240 @@ const showToast = (msg, type = 'info') => {
     document.getElementById('toast-container').appendChild(el);
     setTimeout(() => el.remove(), 3000);
 };
+
+// ================================
+// Onboarding Tour Controller
+// ================================
+
+const tourSteps = [
+    // Start Page Steps
+    {
+        target: '#btn-scan',
+        message: 'Click here to scan your Instagram followers and find who doesn\'t follow you back',
+        page: 'start'
+    },
+    {
+        target: '#btn-nav-toggle',
+        message: 'View detailed scan results and manage your followers here',
+        page: 'start'
+    },
+    {
+        target: '#btn-settings',
+        message: 'Enable auto-scan to automatically check for unfollowers daily',
+        page: 'start'
+    },
+    // Results Page Steps
+    {
+        target: '[data-tab="strangers"]',
+        message: 'Unfollowers - People you follow who don\'t follow you back',
+        page: 'results'
+    },
+    {
+        target: '[data-tab="snakes"]',
+        message: 'Snakes - People who unfollowed you after you followed them. Beware of these! 🐍',
+        page: 'results'
+    },
+    {
+        target: '[data-tab="whitelisted"]',
+        message: 'Whitelisted - Users you\'ve chosen to ignore from unfollower lists',
+        page: 'results'
+    },
+    {
+        target: '#search-input',
+        message: 'Search for specific users by username or name',
+        page: 'results'
+    },
+    {
+        target: '.user-item',
+        message: 'Click on a profile to visit their Instagram. Use the checkbox to select multiple users.',
+        page: 'results'
+    },
+    {
+        target: '#btn-unfollow-selected',
+        message: 'Unfollow selected users or add them to your whitelist',
+        page: 'results'
+    }
+];
+
+let currentTourStep = 0;
+let tourActive = false;
+
+const tourUI = {
+    overlay: document.getElementById('tour-overlay'),
+    tooltip: document.getElementById('tour-tooltip'),
+    message: document.getElementById('tour-message'),
+    stepIndicator: document.getElementById('tour-step-indicator'),
+    nextBtn: document.getElementById('tour-next'),
+    skipBtn: document.getElementById('tour-skip')
+};
+
+const startTour = async () => {
+    // Safety check: if tour UI elements are missing (e.g. after revert), do not run tour
+    if (!tourUI.overlay) return;
+
+    // Check if tour already completed
+    const storage = await chrome.storage.local.get(['onboardingComplete']);
+    if (storage.onboardingComplete) return;
+
+    tourActive = true;
+    currentTourStep = 0;
+    showTourStep(0);
+};
+
+const showTourStep = (index) => {
+    if (index >= tourSteps.length) {
+        completeTour();
+        return;
+    }
+
+    const step = tourSteps[index];
+
+    // Verify context matches
+    const activeView = document.querySelector('.view.active').id;
+    const requiredPage = step.page === 'start' ? 'view-start' : 'view-results';
+
+    // If not on correct page, try to navigate or pause
+    if (activeView !== requiredPage) {
+        if (step.page === 'results' && activeView === 'view-start') {
+            // Need to go to results - safe check
+            handleNavToggle();
+            // Give time for transition then show
+            setTimeout(() => showTourStep(index), 300);
+            return;
+        } else if (step.page === 'start' && activeView === 'view-results') {
+            handleNavToggle();
+            setTimeout(() => showTourStep(index), 300);
+            return;
+        }
+    }
+
+    // Clear previous highlight
+    document.querySelectorAll('.tour-highlight').forEach(el => {
+        el.classList.remove('tour-highlight');
+    });
+
+    const target = document.querySelector(step.target);
+
+    if (!target) {
+        // Skip to next step if target not found
+        nextTourStep();
+        return;
+    }
+
+    // Check if element is visible
+    const rect = target.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0 || window.getComputedStyle(target).display === 'none') {
+        // Element hidden, try next step
+        nextTourStep();
+        return;
+    }
+
+    // Add highlight to target
+    target.classList.add('tour-highlight');
+
+    // Update tooltip content
+    tourUI.message.textContent = step.message;
+    tourUI.stepIndicator.textContent = `Step ${index + 1} of ${tourSteps.length}`;
+
+    // Position tooltip near target element
+    const tooltip = tourUI.tooltip;
+    const tooltipWidth = 260; // max-width from CSS
+
+    // Calculate horizontal position (center below element)
+    let left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
+    // Keep tooltip within viewport
+    left = Math.max(10, Math.min(left, window.innerWidth - tooltipWidth - 10));
+
+    // Position below the element by default
+    const top = rect.bottom + 12;
+
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+
+    // Add arrow class
+    tooltip.classList.remove('arrow-up', 'arrow-down');
+    tooltip.classList.add('arrow-up');
+
+    // Show overlay and tooltip
+    tourUI.overlay.classList.add('active');
+    tourUI.tooltip.classList.add('active');
+
+    currentTourStep = index;
+};
+
+const nextTourStep = async () => {
+    // Check if we need to switch pages for the NEXT step
+    const nextIndex = currentTourStep + 1;
+    if (nextIndex < tourSteps.length) {
+        const currentStep = tourSteps[currentTourStep];
+        const nextStep = tourSteps[nextIndex];
+
+        // If switching from start -> results
+        if (currentStep.page === 'start' && nextStep.page === 'results') {
+            // Check if we can go to results (requires previous scan check)
+            const storage = await chrome.storage.local.get(['lastScanResults']);
+            if (!storage.lastScanResults || storage.lastScanResults.length === 0) {
+                // Cannot go to results yet (no scan), pause tour here
+                showToast('Please run a scan first to continue the tour!', 'info');
+                completeTour(); // Pause/End tour until they scan
+                return;
+            }
+
+            // Navigate to results
+            handleNavToggle();
+            // Wait for transition
+            setTimeout(() => {
+                currentTourStep++;
+                showTourStep(currentTourStep);
+            }, 500);
+            return;
+        }
+    }
+
+    currentTourStep++;
+    if (currentTourStep < tourSteps.length) {
+        showTourStep(currentTourStep);
+    } else {
+        completeTour();
+    }
+};
+
+const completeTour = async () => {
+    tourActive = false;
+
+    // Remove all highlights
+    document.querySelectorAll('.tour-highlight').forEach(el => {
+        el.classList.remove('tour-highlight');
+    });
+
+    // Hide overlay and tooltip
+    tourUI.overlay.classList.remove('active');
+    tourUI.tooltip.classList.remove('active');
+
+    // Mark tour as complete
+    await chrome.storage.local.set({ onboardingComplete: true });
+};
+
+// Tour button listeners
+if (tourUI.nextBtn) {
+    tourUI.nextBtn.addEventListener('click', nextTourStep);
+}
+
+if (tourUI.skipBtn) {
+    tourUI.skipBtn.addEventListener('click', completeTour);
+}
+
+// Allow clicking highlighted element to advance tour
+document.addEventListener('click', (e) => {
+    if (!tourActive) return;
+
+    const highlightedEl = document.querySelector('.tour-highlight');
+    if (highlightedEl && (highlightedEl === e.target || highlightedEl.contains(e.target))) {
+        // Small delay to let the actual click action happen first
+        setTimeout(() => {
+            nextTourStep();
+        }, 100);
+    }
+});
 
 init();

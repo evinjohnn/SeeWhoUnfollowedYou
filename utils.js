@@ -48,6 +48,50 @@ export const unfollowUserUrlGenerator = (id) => {
     return `https://www.instagram.com/web/friendships/${id}/unfollow/`;
 };
 
+// Fetch user's profile info including follower/following counts
+export const fetchUserProfile = async () => {
+    try {
+        const userId = await getCookie("ds_user_id");
+        if (!userId) {
+            console.error("Could not find ds_user_id cookie");
+            return null;
+        }
+
+        // Use Instagram's web profile API to get counts
+        // This requires getting the username first, or we can use a different approach
+        // Using the GraphQL query that returns user info
+        const queryHash = "c9100bf9110dd6361671f113dd02e7d6"; // User info query
+        const variables = {
+            user_id: userId,
+            include_chaining: false,
+            include_reel: false,
+            include_suggested_users: false,
+            include_logged_out_extras: false,
+            include_highlight_reels: false,
+            include_live_status: false
+        };
+
+        const url = `https://www.instagram.com/graphql/query/?query_hash=${queryHash}&variables=${encodeURIComponent(JSON.stringify(variables))}`;
+
+        const response = await fetch(url);
+        const json = await response.json();
+
+        if (json.data && json.data.user) {
+            const user = json.data.user;
+            return {
+                followerCount: user.edge_followed_by?.count || 0,
+                followingCount: user.edge_follow?.count || 0,
+                username: user.username
+            };
+        }
+
+        return null;
+    } catch (error) {
+        console.error("Failed to fetch user profile:", error);
+        return null;
+    }
+};
+
 // Filtering Logic
 export const getUsersForDisplay = (results, whitelistedResults, currentTab, searchTerm, filter) => {
     const filtered = [];
@@ -88,28 +132,30 @@ export const getUsersForDisplay = (results, whitelistedResults, currentTab, sear
     return filtered.sort((a, b) => a.username.localeCompare(b.username));
 };
 
-// Whitelist Management
-export const loadWhitelist = () => {
-    const data = localStorage.getItem(WHITELISTED_RESULTS_STORAGE_KEY);
-    return data ? JSON.parse(data) : [];
+// Whitelist Management - Using chrome.storage.local for persistence
+// Note: These are now async functions
+
+export const loadWhitelist = async () => {
+    const data = await chrome.storage.local.get([WHITELISTED_RESULTS_STORAGE_KEY]);
+    return data[WHITELISTED_RESULTS_STORAGE_KEY] || [];
 };
 
-export const saveWhitelist = (whitelist) => {
-    localStorage.setItem(WHITELISTED_RESULTS_STORAGE_KEY, JSON.stringify(whitelist));
+export const saveWhitelist = async (whitelist) => {
+    await chrome.storage.local.set({ [WHITELISTED_RESULTS_STORAGE_KEY]: whitelist });
 };
 
-export const addToWhitelist = (user) => {
-    const list = loadWhitelist();
+export const addToWhitelist = async (user) => {
+    const list = await loadWhitelist();
     if (!list.some(u => u.id === user.id)) {
         list.push(user);
-        saveWhitelist(list);
+        await saveWhitelist(list);
     }
     return list;
 };
 
-export const removeFromWhitelist = (userId) => {
-    const list = loadWhitelist();
+export const removeFromWhitelist = async (userId) => {
+    const list = await loadWhitelist();
     const newList = list.filter(u => u.id !== userId);
-    saveWhitelist(newList);
+    await saveWhitelist(newList);
     return newList;
 };

@@ -3,7 +3,8 @@ import {
     sleep,
     urlGenerator,
     unfollowUserUrlGenerator,
-    getCookie
+    getCookie,
+    fetchUserProfile
 } from './utils.js';
 
 // -- State --
@@ -11,9 +12,10 @@ import {
 // It resets when the service worker is killed, but that's okay for "active" scans.
 // For "Auto-scan" we check persistent storage.
 let masterState = {
-    status: 'idle', // idle | scanning | unfolllowing
+    status: 'idle', // idle | scanning | unfollowing | error
     progress: 0,
     scannedCount: 0,
+    unfollowedCount: 0, // Track unfollow progress
     totalToScan: 0,
     scanCursor: null,
     results: [],
@@ -22,10 +24,27 @@ let masterState = {
     currentTabId: null
 };
 
+// Auto-recover from error state after 3 seconds
+const recoverFromError = () => {
+    if (masterState.status === 'error') {
+        masterState.status = 'idle';
+        masterState.progress = 0;
+        broadcastUpdate();
+    }
+};
+
 // Load initial state (snakes need to persist)
 chrome.storage.local.get(['snakes', 'lastScanResults'], (data) => {
     if (data.snakes) masterState.snakes = data.snakes;
     if (data.lastScanResults) masterState.results = data.lastScanResults;
+});
+
+// Enable autoscan by default on first install
+chrome.runtime.onInstalled.addListener((details) => {
+    if (details.reason === 'install') {
+        chrome.storage.local.set({ enableAutoScan: true });
+        console.log('Auto-scan enabled by default on first install');
+    }
 });
 
 // -- Listeners --
@@ -134,6 +153,7 @@ const startScanProcess = async (isAuto = false) => {
                 console.error("Failed to generate URL (missing cookies?)");
                 masterState.status = 'error';
                 broadcastUpdate();
+                setTimeout(recoverFromError, 3000); // Auto-recover after 3s
                 return;
             }
 
@@ -186,16 +206,43 @@ const startScanProcess = async (isAuto = false) => {
         let newSnakes = [];
 
         if (lastScan.length > 0) {
-            // 2. Identify Snakes:
-            // Users who were in lastScan (I followed them) 
-            // BUT are NOT in masterState.results (I don't follow them anymore)
+            // 2. Identify Snakes (CORRECT LOGIC):
+            // Snakes = people who USED TO FOLLOW YOU but NO LONGER FOLLOW YOU
+            // 
+            // - In previous scan: follows_viewer = true (they followed you)
+            // - In current scan: follows_viewer = false OR they're not in your following list anymore
+            //
+            // This is different from people YOU unfollowed (which would just disappear from results)
 
-            const currentIds = new Set(masterState.results.map(u => u.id));
-            newSnakes = lastScan.filter(oldUser => !currentIds.has(oldUser.id));
+            // Build a map of current users for quick lookup
+            const currentUsersMap = new Map(masterState.results.map(u => [u.id, u]));
+
+            // Find snakes: people who followed you before but don't anymore
+            newSnakes = lastScan.filter(oldUser => {
+                // Only consider users who WERE following you in the last scan
+                if (!oldUser.follows_viewer) return false;
+
+                // Check current state
+                const currentUser = currentUsersMap.get(oldUser.id);
+
+                if (!currentUser) {
+                    // User is no longer in your following list
+                    // This means YOU unfollowed them - NOT a snake
+                    return false;
+                }
+
+                // User is still in your following list but no longer follows you back
+                // THIS is a snake - they unfollowed you
+                return !currentUser.follows_viewer;
+            });
 
             // [FIX] Clean up existing snakes: 
-            // If a known snake is now in currentIds (followed back), remove them from snakes list
-            masterState.snakes = masterState.snakes.filter(snake => !currentIds.has(snake.id));
+            // If a known snake is now following you again (follows_viewer = true), remove them
+            masterState.snakes = masterState.snakes.filter(snake => {
+                const currentUser = currentUsersMap.get(snake.id);
+                // Keep as snake only if they still don't follow you
+                return !currentUser || !currentUser.follows_viewer;
+            });
 
             // Add new snakes to master list (avoid duplicates)
             const existingSnakeIds = new Set(masterState.snakes.map(s => s.id));
@@ -211,12 +258,16 @@ const startScanProcess = async (isAuto = false) => {
             await chrome.storage.local.set({ snakes: masterState.snakes });
         }
 
+        // Fetch actual follower count from profile API
+        const profileData = await fetchUserProfile();
+        const actualFollowerCount = profileData?.followerCount || 0;
+
         // 3. Save Current as Last + Timestamp for cooldown indicator
         // Also save to scan history for comparison
         const currentScanData = {
             timestamp: Date.now(),
             followingCount: masterState.results.length,
-            followersCount: masterState.results.length, // Using result length as proxy for now if followers not separately tracked
+            followerCount: actualFollowerCount, // Actual follower count from API
             newSnakesCount: newSnakes.length
         };
 
@@ -246,6 +297,7 @@ const startScanProcess = async (isAuto = false) => {
         console.error("Scan fatal error", err);
         masterState.status = 'error';
         broadcastUpdate();
+        setTimeout(recoverFromError, 3000); // Auto-recover after 3s
     }
 };
 
@@ -261,10 +313,11 @@ const startUnfollowProcess = async (usersToUnfollow) => {
     if (!csrf) {
         masterState.status = 'error'; // Missing Token
         broadcastUpdate();
+        setTimeout(recoverFromError, 3000); // Auto-recover after 3s
         return;
     }
 
-    let processed = 0;
+    masterState.unfollowedCount = 0;
     for (const userId of usersToUnfollow) {
         if (masterState.status !== 'unfollowing') break; // User stopped it
 
@@ -286,13 +339,16 @@ const startUnfollowProcess = async (usersToUnfollow) => {
             console.error(`Failed to unfollow ${userId}`, e);
         }
 
-        processed++;
-        masterState.progress = Math.round((processed / usersToUnfollow.length) * 100);
+        masterState.unfollowedCount++;
+        masterState.progress = Math.round((masterState.unfollowedCount / usersToUnfollow.length) * 100);
         broadcastUpdate();
 
         // Safety Delay
         await sleep(4000 + Math.random() * 2000);
     }
+
+    // Persist updated results to storage after unfollowing
+    await chrome.storage.local.set({ lastScanResults: masterState.results });
 
     masterState.status = 'idle';
     broadcastUpdate();
