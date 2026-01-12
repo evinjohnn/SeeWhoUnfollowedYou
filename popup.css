@@ -1746,18 +1746,46 @@ button {
 }
 
 /* =========================================
-   Onboarding Tour Styles (Restored)
+   Onboarding Tour Styles (NEW)
    ========================================= */
+
+/* Blinking highlight animation - BRIGHT and prominent */
+@keyframes tour-blink {
+
+    0%,
+    100% {
+        box-shadow: 0 0 0 3px rgba(0, 229, 255, 0.5), 0 0 15px rgba(0, 229, 255, 0.3);
+        transform: scale(1);
+    }
+
+    50% {
+        box-shadow: 0 0 0 5px rgba(0, 229, 255, 0.8), 0 0 30px rgba(0, 229, 255, 0.5), 0 0 50px rgba(0, 229, 255, 0.2);
+        transform: scale(1.02);
+    }
+}
+
+.tour-blink {
+    animation: tour-blink 1.2s ease-in-out infinite;
+    position: relative !important;
+    z-index: 10000 !important;
+    isolation: isolate;
+    background: rgba(0, 229, 255, 0.15) !important;
+    /* Brighter background */
+    border-radius: var(--radius-pill) !important;
+    filter: brightness(1.1);
+    /* Pop the element */
+}
+
+/* Semi-transparent overlay */
 #tour-overlay {
     position: fixed;
     top: 0;
     left: 0;
     width: 100%;
     height: 100%;
-    /* We used box-shadow hole technique or just overlay? 
-       For simplicity, let's just make it a click-blocker for now or simple dim */
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 9998;
+    background: rgba(0, 0, 0, 0.6);
+    /* Darker to contrast with highlight */
+    z-index: 9999;
     pointer-events: none;
     opacity: 0;
     transition: opacity 0.3s ease;
@@ -1765,22 +1793,24 @@ button {
 
 #tour-overlay.active {
     opacity: 1;
-    pointer-events: auto;
 }
 
+/* Tooltip - Pill shaped */
 .tour-tooltip {
-    position: absolute;
-    background: var(--bg-card);
-    border: 1px solid var(--accent-primary);
-    box-shadow: 0 0 20px rgba(0, 229, 255, 0.2);
-    border-radius: 12px;
-    padding: 16px;
-    width: 260px;
-    z-index: 9999;
+    position: fixed;
+    background: rgba(20, 24, 32, 0.95);
+    border: 1px solid rgba(0, 229, 255, 0.4);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 229, 255, 0.1);
+    border-radius: 16px;
+    padding: 14px 18px;
+    max-width: 280px;
+    z-index: 10000;
     opacity: 0;
-    transform: translateY(10px);
-    transition: opacity 0.3s ease, transform 0.3s ease;
+    transform: translateY(8px);
+    transition: opacity 0.25s ease, transform 0.25s ease;
     pointer-events: none;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
 }
 
 .tour-tooltip.active {
@@ -1789,92 +1819,91 @@ button {
     pointer-events: auto;
 }
 
-.tour-content h3 {
-    margin: 0 0 8px 0;
-    font-size: 14px;
-    color: var(--text-primary);
-}
-
-.tour-content p {
-    margin: 0 0 16px 0;
+/* Tooltip message */
+.tour-message {
+    margin: 0 0 12px 0;
     font-size: 13px;
-    color: var(--text-secondary);
-    line-height: 1.4;
+    color: var(--text-primary);
+    line-height: 1.5;
+    font-weight: 500;
 }
 
+/* Footer with step indicator and buttons */
 .tour-footer {
     display: flex;
     justify-content: space-between;
     align-items: center;
 }
 
-.tour-progress {
-    font-size: 11px;
+.tour-step-indicator {
+    font-size: 10px;
     color: var(--text-tertiary);
-    font-family: monospace;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
 }
 
-.tour-controls {
+.tour-buttons {
     display: flex;
     gap: 8px;
 }
 
-.btn-text {
-    background: none;
+.tour-btn {
     border: none;
-    color: var(--text-secondary);
-    cursor: pointer;
-    font-size: 12px;
-    padding: 4px 8px;
-}
-
-.btn-text:hover {
-    color: var(--text-primary);
-}
-
-.btn-primary-small {
-    background: var(--accent-primary);
-    color: #000;
-    border: none;
-    border-radius: 4px;
-    padding: 4px 12px;
-    font-size: 12px;
+    padding: 6px 14px;
+    border-radius: var(--radius-pill);
+    font-size: 11px;
     font-weight: 600;
     cursor: pointer;
+    transition: all 0.2s ease;
 }
 
-.btn-primary-small:hover {
+.tour-btn-skip {
+    background: transparent;
+    color: var(--text-tertiary);
+    border: 1px solid var(--border-subtle);
+}
+
+.tour-btn-skip:hover {
+    color: var(--text-secondary);
+    border-color: var(--text-tertiary);
+}
+
+.tour-btn-next {
+    background: var(--accent-primary);
+    color: #000;
+}
+
+.tour-btn-next:hover {
     filter: brightness(1.1);
+    transform: scale(1.02);
 }
 
-.tour-arrow {
+/* Arrow pointing to target */
+.tour-tooltip::before {
+    content: '';
     position: absolute;
-    width: 12px;
-    height: 12px;
-    background: var(--bg-card);
-    border-left: 1px solid var(--accent-primary);
-    border-bottom: 1px solid var(--accent-primary);
-    transform: rotate(-45deg);
-    bottom: -7px;
-    left: 50%;
-    margin-left: -6px;
+    width: 10px;
+    height: 10px;
+    background: rgba(20, 24, 32, 0.95);
+    border-left: 1px solid rgba(0, 229, 255, 0.4);
+    border-top: 1px solid rgba(0, 229, 255, 0.4);
+    transform: rotate(45deg);
 }
 
-/* Arrow Variations */
-.tour-tooltip[data-placement="top"] .tour-arrow {
-    bottom: -7px;
-    top: auto;
-    border-top: none;
-    border-right: none;
-    border-left: 1px solid var(--accent-primary);
-    border-bottom: 1px solid var(--accent-primary);
+/* Arrow on top (tooltip below target) */
+.tour-tooltip.arrow-up::before {
+    top: -6px;
+    left: var(--arrow-left, 50%);
+    transform: translateX(-50%) rotate(45deg);
 }
 
-.tour-tooltip[data-placement="bottom"] .tour-arrow {
-    top: -7px;
-    bottom: auto;
-    border-bottom: none;
+/* Arrow on bottom (tooltip above target) */
+.tour-tooltip.arrow-down::before {
+    bottom: -6px;
+    left: var(--arrow-left, 50%);
+    transform: translateX(-50%) rotate(45deg);
     border-left: none;
-    border-top: 1px solid var(--accent-primary);
-    border-right: 1px solid var(--accent-primary);
+    border-top: none;
+    border-right: 1px solid rgba(0, 229, 255, 0.4);
+    border-bottom: 1px solid rgba(0, 229, 255, 0.4);
 }

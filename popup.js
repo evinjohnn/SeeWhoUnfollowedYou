@@ -942,13 +942,13 @@ const showToast = (msg, type = 'info') => {
 };
 
 // ================================
-// Onboarding Tour Controller
+// NEW Onboarding Tour Controller
 // ================================
 
 const tourSteps = [
-    // Start Page Steps
+    // === GREETING PAGE ===
     {
-        target: '#btn-scan',
+        target: '#btn-scan, #btn-scan-again',
         message: 'Click here to scan your Instagram followers and find who doesn\'t follow you back',
         page: 'start'
     },
@@ -959,37 +959,37 @@ const tourSteps = [
     },
     {
         target: '#btn-settings',
-        message: 'Enable auto-scan to automatically check for unfollowers daily',
+        message: 'Configure auto-scan and other preferences',
         page: 'start'
     },
-    // Results Page Steps
+    // === RESULTS PAGE ===
     {
         target: '[data-tab="strangers"]',
-        message: 'Unfollowers - People you follow who don\'t follow you back',
+        message: 'Unfollowers — People you follow who don\'t follow you back',
         page: 'results'
     },
     {
         target: '[data-tab="snakes"]',
-        message: 'Snakes - People who unfollowed you after you followed them. Beware of these! 🐍',
+        message: 'Snakes — Users who unfollowed you after you followed them 🐍',
         page: 'results'
     },
     {
         target: '[data-tab="whitelisted"]',
-        message: 'Whitelisted - Users you\'ve chosen to ignore from unfollower lists',
+        message: 'Whitelisted — Users you\'ve excluded from unfollower lists',
         page: 'results'
     },
     {
-        target: '#search-input',
-        message: 'Search for specific users by username or name',
+        target: '.user-select-checkbox',
+        message: 'Use checkboxes to select multiple users for bulk actions',
         page: 'results'
     },
     {
         target: '.user-item',
-        message: 'Click on a profile to visit their Instagram. Use the checkbox to select multiple users.',
+        message: 'Click on a user\'s avatar or name to visit their Instagram profile',
         page: 'results'
     },
     {
-        target: '#btn-unfollow-selected',
+        target: '#btn-unfollow-selected, #btn-whitelist-selected',
         message: 'Unfollow selected users or add them to your whitelist',
         page: 'results'
     }
@@ -1008,10 +1008,10 @@ const tourUI = {
 };
 
 const startTour = async () => {
-    // Safety check: if tour UI elements are missing (e.g. after revert), do not run tour
-    if (!tourUI.overlay) return;
+    // Safety check
+    if (!tourUI.overlay || !tourUI.tooltip) return;
 
-    // TEST MODE: Comment out to always show tour
+    // TEST MODE: Always show tour (comment out for production)
     // const storage = await chrome.storage.local.get(['onboardingComplete']);
     // if (storage.onboardingComplete) return;
 
@@ -1028,100 +1028,112 @@ const showTourStep = (index) => {
 
     const step = tourSteps[index];
 
-    // Verify context matches
-    const activeView = document.querySelector('.view.active').id;
+    // Check page context
+    const activeView = document.querySelector('.view.active')?.id;
     const requiredPage = step.page === 'start' ? 'view-start' : 'view-results';
 
-    // If not on correct page, try to navigate or pause
     if (activeView !== requiredPage) {
         if (step.page === 'results' && activeView === 'view-start') {
-            // Need to go to results - safe check
             handleNavToggle();
-            // Give time for transition then show
-            setTimeout(() => showTourStep(index), 300);
+            setTimeout(() => showTourStep(index), 400);
             return;
         } else if (step.page === 'start' && activeView === 'view-results') {
             handleNavToggle();
-            setTimeout(() => showTourStep(index), 300);
+            setTimeout(() => showTourStep(index), 400);
             return;
         }
     }
 
-    // Clear previous highlight
-    document.querySelectorAll('.tour-highlight').forEach(el => {
-        el.classList.remove('tour-highlight');
-    });
+    // Clear previous blinks
+    document.querySelectorAll('.tour-blink').forEach(el => el.classList.remove('tour-blink'));
 
-    const target = document.querySelector(step.target);
+    // Find target (handle multiple selectors)
+    let target = null;
+    const selectors = step.target.split(',').map(s => s.trim());
+    for (const sel of selectors) {
+        target = document.querySelector(sel);
+        if (target && target.offsetWidth > 0) break;
+    }
 
-    if (!target) {
-        // Skip to next step if target not found
-        nextTourStep();
+    if (!target || target.offsetWidth === 0) {
+        // Skip if not found
+        currentTourStep++;
+        showTourStep(currentTourStep);
         return;
     }
 
-    // Check if element is visible
-    const rect = target.getBoundingClientRect();
-    if (rect.width === 0 || rect.height === 0 || window.getComputedStyle(target).display === 'none') {
-        // Element hidden, try next step
-        nextTourStep();
-        return;
-    }
-
-    // Add highlight to target
-    target.classList.add('tour-highlight');
+    // Add blink
+    target.classList.add('tour-blink');
 
     // Update tooltip content
     tourUI.message.textContent = step.message;
-    tourUI.stepIndicator.textContent = `Step ${index + 1} of ${tourSteps.length}`;
+    tourUI.stepIndicator.textContent = `${index + 1} of ${tourSteps.length}`;
 
-    // Position tooltip near target element
-    const tooltip = tourUI.tooltip;
-    const tooltipWidth = 260; // max-width from CSS
+    // Position tooltip
+    positionTooltip(target);
 
-    // Calculate horizontal position (center below element)
-    let left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
-    // Keep tooltip within viewport
-    left = Math.max(10, Math.min(left, window.innerWidth - tooltipWidth - 10));
-
-    // Position below the element by default
-    const top = rect.bottom + 12;
-
-    tooltip.style.left = `${left}px`;
-    tooltip.style.top = `${top}px`;
-
-    // Add arrow class
-    tooltip.classList.remove('arrow-up', 'arrow-down');
-    tooltip.classList.add('arrow-up');
-
-    // Show overlay and tooltip
+    // Show (remove hidden, add active)
+    tourUI.overlay.classList.remove('hidden');
     tourUI.overlay.classList.add('active');
+    tourUI.tooltip.classList.remove('hidden');
     tourUI.tooltip.classList.add('active');
 
     currentTourStep = index;
 };
 
+const positionTooltip = (target) => {
+    const rect = target.getBoundingClientRect();
+    const tooltip = tourUI.tooltip;
+    const tooltipWidth = 280;
+    const tooltipHeight = 120; // Fixed height estimate since offsetHeight may be 0
+    const padding = 20; // Increased gap to prevent overlap
+
+    // Calculate horizontal center
+    let left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
+    left = Math.max(10, Math.min(left, window.innerWidth - tooltipWidth - 10));
+
+    // Decide placement: below by default, above if near bottom
+    let top;
+    let arrowClass = 'arrow-up';
+
+    if (rect.bottom + tooltipHeight + padding > window.innerHeight) {
+        // Place above
+        top = rect.top - tooltipHeight - padding;
+        arrowClass = 'arrow-down';
+    } else {
+        // Place below
+        top = rect.bottom + padding;
+    }
+
+    tooltip.style.left = `${left}px`;
+    tooltip.style.top = `${top}px`;
+    tooltip.classList.remove('arrow-up', 'arrow-down');
+    tooltip.classList.add(arrowClass);
+
+    // Calculate arrow position to point exactly at target center
+    const targetCenterX = rect.left + (rect.width / 2);
+    const arrowLeftPx = targetCenterX - left;
+    // Clamp arrow within tooltip bounds (10px from edges)
+    const clampedArrowLeft = Math.max(15, Math.min(arrowLeftPx, tooltipWidth - 15));
+    tooltip.style.setProperty('--arrow-left', `${clampedArrowLeft}px`);
+};
+
 const nextTourStep = async () => {
-    // Check if we need to switch pages for the NEXT step
     const nextIndex = currentTourStep + 1;
+
+    // Check if switching pages
     if (nextIndex < tourSteps.length) {
         const currentStep = tourSteps[currentTourStep];
         const nextStep = tourSteps[nextIndex];
 
-        // If switching from start -> results
         if (currentStep.page === 'start' && nextStep.page === 'results') {
-            // Check if we can go to results (requires previous scan check)
             const storage = await chrome.storage.local.get(['lastScanResults']);
             if (!storage.lastScanResults || storage.lastScanResults.length === 0) {
-                // Cannot go to results yet (no scan), pause tour here
-                showToast('Please run a scan first to continue the tour!', 'info');
-                completeTour(); // Pause/End tour until they scan
+                showToast('Run a scan first to see results!', 'info');
+                completeTour();
                 return;
             }
-
-            // Navigate to results
             handleNavToggle();
-            // Wait for transition
             setTimeout(() => {
                 currentTourStep++;
                 showTourStep(currentTourStep);
@@ -1141,20 +1153,17 @@ const nextTourStep = async () => {
 const completeTour = async () => {
     tourActive = false;
 
-    // Remove all highlights
-    document.querySelectorAll('.tour-highlight').forEach(el => {
-        el.classList.remove('tour-highlight');
-    });
+    document.querySelectorAll('.tour-blink').forEach(el => el.classList.remove('tour-blink'));
 
-    // Hide overlay and tooltip
     tourUI.overlay.classList.remove('active');
+    tourUI.overlay.classList.add('hidden');
     tourUI.tooltip.classList.remove('active');
+    tourUI.tooltip.classList.add('hidden');
 
-    // Mark tour as complete
     await chrome.storage.local.set({ onboardingComplete: true });
 };
 
-// Tour button listeners
+// Event listeners
 if (tourUI.nextBtn) {
     tourUI.nextBtn.addEventListener('click', nextTourStep);
 }
@@ -1163,17 +1172,13 @@ if (tourUI.skipBtn) {
     tourUI.skipBtn.addEventListener('click', completeTour);
 }
 
-// Allow clicking highlighted element to advance tour
+// Click on highlighted element advances tour
 document.addEventListener('click', (e) => {
     if (!tourActive) return;
 
-    const highlightedEl = document.querySelector('.tour-highlight');
-    if (highlightedEl && (highlightedEl === e.target || highlightedEl.contains(e.target))) {
-        // Small delay to let the actual click action happen first
-        setTimeout(() => {
-            nextTourStep();
-        }, 100);
+    const blinkingEl = document.querySelector('.tour-blink');
+    if (blinkingEl && (blinkingEl === e.target || blinkingEl.contains(e.target))) {
+        setTimeout(() => nextTourStep(), 150);
     }
 });
-
 init();
