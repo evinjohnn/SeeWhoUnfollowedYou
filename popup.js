@@ -340,13 +340,16 @@ const renderTimeline = async () => {
         ui.timelineList.appendChild(fragment);
         ui.timelineContainer.classList.remove('hidden');
     } else {
-        // Show empty state instead of hiding
+        // Show +0 Followers to match the format when there are changes
         ui.timelineContainer.classList.remove('hidden');
         const div = document.createElement('div');
         div.className = 'timeline-item';
-        div.style.justifyContent = 'center';
-        div.style.opacity = '0.7';
-        div.innerHTML = `<span class="timeline-date">No changes recorded yet</span>`;
+        div.innerHTML = `
+            <span class="timeline-date">Today</span>
+            <div class="timeline-change">
+                <span>+0 Followers</span>
+            </div>
+        `;
         ui.timelineList.appendChild(div);
     }
 };

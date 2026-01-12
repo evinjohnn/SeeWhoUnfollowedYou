@@ -304,6 +304,11 @@ button {
 #first-run-state {
     justify-content: center;
     gap: var(--space-md);
+    /* Subtle gradient background */
+    background: radial-gradient(ellipse 80% 60% at 50% 40%,
+            rgba(0, 229, 255, 0.08) 0%,
+            rgba(129, 140, 248, 0.04) 40%,
+            transparent 70%);
 }
 
 .btn-primary-large {
@@ -380,15 +385,15 @@ button {
 .welcome-icon {
     width: 80px;
     height: 80px;
-    background: linear-gradient(135deg, var(--accent-primary) 0%, var(--accent-secondary) 100%);
-    border: none;
+    background: rgba(22, 27, 34, 0.8);
+    border: 1px solid var(--glass-border);
     border-radius: 24px;
     display: flex;
     align-items: center;
     justify-content: center;
-    color: #000;
+    color: var(--accent-primary);
     margin-bottom: var(--space-md);
-    box-shadow: 0 0 30px var(--accent-glow), 0 10px 30px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
 }
 
 .welcome-text {
