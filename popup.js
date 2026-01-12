@@ -526,7 +526,7 @@ const init = async () => {
     ui.btnNavToggle.addEventListener('click', handleNavToggle);
     ui.btnSettings.addEventListener('click', () => toggleModal(ui.modalSettings, true));
     ui.btnCloseModals.forEach(btn => btn.addEventListener('click', () => toggleModal(ui.modalSettings, false)));
-    ui.btnSaveSettings.addEventListener('click', saveSettings);
+
 
     ui.tabs.forEach(tab => {
         tab.addEventListener('click', (e) => switchTab(e.currentTarget.dataset.tab));
@@ -539,21 +539,26 @@ const init = async () => {
 
 
 
-    // Profile Redirection (Delegated)
+    // Profile Redirection (Only on avatar or username click)
     ui.resultsList.addEventListener('click', (e) => {
-        const item = e.target.closest('.user-item');
-        if (!item) return;
+        // Only redirect if clicking on avatar image or username text
+        const isAvatarClick = e.target.closest('.user-avatar');
+        const isUsernameClick = e.target.closest('.user-name');
+
+        if (!isAvatarClick && !isUsernameClick) return;
 
         // Ignore clicks on checkbox or any interactive buttons inside
         if (e.target.type === 'checkbox' || e.target.tagName === 'BUTTON') return;
 
-        // Find the username element (use .user-name class, not .username)
+        const item = e.target.closest('.user-item');
+        if (!item) return;
+
+        // Find the username element
         const usernameEl = item.querySelector('.user-name');
         if (usernameEl) {
-            // Extract just the text, removing any child elements (like verified icon)
             const usernameNode = usernameEl.childNodes[0];
             const username = usernameNode ? usernameNode.textContent.trim() : usernameEl.textContent.trim();
-            if (username && !username.includes('<')) { // Basic XSS protection
+            if (username && !username.includes('<')) {
                 chrome.tabs.create({ url: `https://www.instagram.com/${username}/` });
             }
         }
@@ -562,6 +567,60 @@ const init = async () => {
     ui.btnUnfollowSelected.addEventListener('click', startUnfollowProcess);
     if (ui.btnWhitelistSelected) ui.btnWhitelistSelected.addEventListener('click', startWhitelistProcess);
     if (ui.btnRemoveSelected) ui.btnRemoveSelected.addEventListener('click', startRemoveFromWhitelistProcess);
+
+
+    // Restart Tour Button
+    const btnRestartTour = document.getElementById('btn-restart-tour');
+    if (btnRestartTour) {
+        btnRestartTour.addEventListener('click', async () => {
+            console.log('Restarting tour...');
+            // Reset flags
+            await chrome.storage.local.set({
+                tourPart1Complete: false,
+                tourPart2Complete: false,
+                onboardingComplete: false
+            });
+
+            // Close modal
+            ui.modalSettings.classList.remove('active');
+
+            // Start tour part 1
+            setTimeout(() => {
+                if (typeof startTourPart1 === 'function') {
+                    startTourPart1();
+                } else {
+                    console.error('startTourPart1 function not found');
+                }
+            }, 300);
+        });
+    }
+
+    // Save Settings
+    if (ui.btnSaveSettings) {
+        ui.btnSaveSettings.addEventListener('click', async () => {
+            const scanDelay = parseInt(ui.inputScanDelay.value, 10);
+            const unfollowDelay = parseInt(ui.inputUnfollowDelay.value, 10);
+            const autoScan = ui.toggleAutoScan.checked;
+
+            await chrome.storage.local.set({
+                scanDelay,
+                unfollowDelay,
+                enableAutoScan: autoScan
+            });
+
+            // Update alarms
+            chrome.runtime.sendMessage({
+                type: 'UPDATE_ALARM',
+                payload: { enableAutoScan: autoScan }
+            });
+
+            ui.modalSettings.classList.remove('active');
+            // Assuming showToast is defined globally or we need to check
+            if (typeof showToast === 'function') {
+                showToast('Settings saved successfully!', 'success');
+            }
+        });
+    }
 
     // Load Settings
     const settings = await chrome.storage.local.get(['enableAutoScan']);
@@ -595,6 +654,9 @@ const showPreviousResults = async () => {
 
         // Update nav button to "Details"
         ui.btnNavToggle.textContent = 'Details';
+
+        // Start Tour Part 2 after scan results are shown
+        setTimeout(() => startTourPart2(), 500);
     }
 };
 
@@ -652,19 +714,20 @@ const updateFromBackground = (bgState) => {
         ui.scanProgress.style.width = `${state.progress}%`;
         ui.scanPercentage.textContent = `${state.progress}%`;
     } else if (bgState.status === 'idle') {
-        // Idle: stay on start view (checkReturningUser already set up the correct state)
-        // Only switch to start if we're currently on scanning (scan just completed)
+        // Idle: check if scan just completed
         const wasScanningBefore = state.status === 'scanning';
         state.status = state.results.length > 0 ? 'results' : 'initial';
 
-        // If scan just completed, refresh the returning user view
+        // If scan just completed, go to results page
         if (document.getElementById('view-scanning').classList.contains('active')) {
-            checkReturningUser();
-            switchView('start');
-
-            // Show completion banner if scan just finished
-            if (wasScanningBefore) {
+            if (wasScanningBefore && state.results.length > 0) {
+                // Scan completed - go to results page
+                showPreviousResults();
                 showCompletionBanner();
+            } else {
+                // No results - stay on start
+                checkReturningUser();
+                switchView('start');
             }
         }
     }
@@ -811,15 +874,23 @@ const switchTab = (tabName) => {
 
 const renderCounts = () => {
     const totalRaw = state.results.length;
-    ui.countWhitelisted.textContent = state.whitelisted.length;
+    const whitelistedCount = state.whitelisted.length;
+    ui.countWhitelisted.textContent = whitelistedCount;
 
     // Strangers: In results, NOT in whitelist AND NOT mutual (follows_viewer)
-    ui.countStrangers.textContent = totalRaw > 0
+    const strangersCount = totalRaw > 0
         ? state.results.filter(u => !state.whitelisted.some(w => w.id === u.id) && !u.follows_viewer).length
         : 0;
+    ui.countStrangers.textContent = strangersCount;
 
     // Snakes: From history list
-    ui.countSnakes.textContent = state.snakes.length;
+    const snakesCount = state.snakes.length;
+    ui.countSnakes.textContent = snakesCount;
+
+    // Grey out zero counts, colorize non-zero
+    ui.countStrangers.classList.toggle('count-zero', strangersCount === 0);
+    ui.countSnakes.classList.toggle('count-zero', snakesCount === 0);
+    ui.countWhitelisted.classList.toggle('count-zero', whitelistedCount === 0);
 };
 
 
@@ -959,7 +1030,7 @@ const tourSteps = [
     },
     {
         target: '#btn-settings',
-        message: 'Configure auto-scan and other preferences',
+        message: 'Configure auto-scan intervals and preferences here',
         page: 'start'
     },
     // === RESULTS PAGE ===
@@ -975,7 +1046,7 @@ const tourSteps = [
     },
     {
         target: '[data-tab="whitelisted"]',
-        message: 'Whitelisted — Users you\'ve excluded from unfollower lists',
+        message: 'Whitelisted — Users you\'ve excluded from unfollower lists. Switch here to manage them.',
         page: 'results'
     },
     {
@@ -989,14 +1060,28 @@ const tourSteps = [
         page: 'results'
     },
     {
-        target: '#btn-unfollow-selected, #btn-whitelist-selected',
-        message: 'Unfollow selected users or add them to your whitelist',
+        target: '#btn-whitelist-selected',
+        message: 'Add selected users to your whitelist — they won\'t appear in unfollower lists',
+        page: 'results'
+    },
+    {
+        target: '#btn-unfollow-selected',
+        message: 'Unfollow selected users directly from here',
+        page: 'results'
+    },
+    {
+        target: '#btn-remove-selected',
+        message: 'Remove selected users from your whitelist (when viewing Whitelisted tab)',
         page: 'results'
     }
 ];
 
+// Find the index where Part 2 (results) starts
+const PART_2_START_INDEX = tourSteps.findIndex(step => step.page === 'results');
+
 let currentTourStep = 0;
 let tourActive = false;
+let tourPart = 1; // Track which part of the tour we're on
 
 const tourUI = {
     overlay: document.getElementById('tour-overlay'),
@@ -1007,18 +1092,38 @@ const tourUI = {
     skipBtn: document.getElementById('tour-skip')
 };
 
-const startTour = async () => {
+// Part 1: Greeting page tour (runs on first load)
+const startTourPart1 = async () => {
     // Safety check
     if (!tourUI.overlay || !tourUI.tooltip) return;
 
-    // TEST MODE: Always show tour (comment out for production)
-    // const storage = await chrome.storage.local.get(['onboardingComplete']);
-    // if (storage.onboardingComplete) return;
+    // Check if tour already completed
+    const storage = await chrome.storage.local.get(['tourPart1Complete']);
+    if (storage.tourPart1Complete) return;
 
     tourActive = true;
+    tourPart = 1;
     currentTourStep = 0;
     showTourStep(0);
 };
+
+// Part 2: Results page tour (runs after scan completion)
+const startTourPart2 = async () => {
+    // Safety check
+    if (!tourUI.overlay || !tourUI.tooltip) return;
+
+    // Check if tour Part 2 already completed
+    const storage = await chrome.storage.local.get(['tourPart2Complete']);
+    if (storage.tourPart2Complete) return;
+
+    tourActive = true;
+    tourPart = 2;
+    currentTourStep = PART_2_START_INDEX;
+    showTourStep(PART_2_START_INDEX);
+};
+
+// Legacy function for compatibility
+const startTour = startTourPart1;
 
 const showTourStep = (index) => {
     if (index >= tourSteps.length) {
@@ -1084,19 +1189,20 @@ const showTourStep = (index) => {
 const positionTooltip = (target) => {
     const rect = target.getBoundingClientRect();
     const tooltip = tourUI.tooltip;
-    const tooltipWidth = 280;
-    const tooltipHeight = 120; // Fixed height estimate since offsetHeight may be 0
-    const padding = 20; // Increased gap to prevent overlap
+    const tooltipWidth = 240; // Compact size
+    const tooltipHeight = 100; // Compact size
+    const padding = 14;
+    const margin = 8; // Margin from popup edges
 
     // Calculate horizontal center
     let left = rect.left + (rect.width / 2) - (tooltipWidth / 2);
-    left = Math.max(10, Math.min(left, window.innerWidth - tooltipWidth - 10));
+    left = Math.max(margin, Math.min(left, window.innerWidth - tooltipWidth - margin));
 
     // Decide placement: below by default, above if near bottom
     let top;
     let arrowClass = 'arrow-up';
 
-    if (rect.bottom + tooltipHeight + padding > window.innerHeight) {
+    if (rect.bottom + tooltipHeight + padding > window.innerHeight - margin) {
         // Place above
         top = rect.top - tooltipHeight - padding;
         arrowClass = 'arrow-down';
@@ -1104,6 +1210,9 @@ const positionTooltip = (target) => {
         // Place below
         top = rect.bottom + padding;
     }
+
+    // Clamp vertical position within popup bounds
+    top = Math.max(margin, Math.min(top, window.innerHeight - tooltipHeight - margin));
 
     tooltip.style.left = `${left}px`;
     tooltip.style.top = `${top}px`;
@@ -1113,26 +1222,27 @@ const positionTooltip = (target) => {
     // Calculate arrow position to point exactly at target center
     const targetCenterX = rect.left + (rect.width / 2);
     const arrowLeftPx = targetCenterX - left;
-    // Clamp arrow within tooltip bounds (10px from edges)
-    const clampedArrowLeft = Math.max(15, Math.min(arrowLeftPx, tooltipWidth - 15));
+    // Clamp arrow within tooltip bounds (15px from edges)
+    const clampedArrowLeft = Math.max(20, Math.min(arrowLeftPx, tooltipWidth - 20));
     tooltip.style.setProperty('--arrow-left', `${clampedArrowLeft}px`);
 };
 
 const nextTourStep = async () => {
     const nextIndex = currentTourStep + 1;
 
-    // Check if switching pages
+    // Part 1 ends when we reach results page steps
+    if (tourPart === 1 && nextIndex >= PART_2_START_INDEX) {
+        // End Part 1 - Part 2 will start after scan
+        completeTour();
+        return;
+    }
+
+    // Check if switching pages (for Part 2)
     if (nextIndex < tourSteps.length) {
         const currentStep = tourSteps[currentTourStep];
         const nextStep = tourSteps[nextIndex];
 
         if (currentStep.page === 'start' && nextStep.page === 'results') {
-            const storage = await chrome.storage.local.get(['lastScanResults']);
-            if (!storage.lastScanResults || storage.lastScanResults.length === 0) {
-                showToast('Run a scan first to see results!', 'info');
-                completeTour();
-                return;
-            }
             handleNavToggle();
             setTimeout(() => {
                 currentTourStep++;
@@ -1160,7 +1270,12 @@ const completeTour = async () => {
     tourUI.tooltip.classList.remove('active');
     tourUI.tooltip.classList.add('hidden');
 
-    await chrome.storage.local.set({ onboardingComplete: true });
+    // Save part-specific completion
+    if (tourPart === 1) {
+        await chrome.storage.local.set({ tourPart1Complete: true });
+    } else if (tourPart === 2) {
+        await chrome.storage.local.set({ tourPart2Complete: true, onboardingComplete: true });
+    }
 };
 
 // Event listeners
