@@ -374,12 +374,43 @@ const renderCloutTracker = (scanHistory) => {
 
     if (cloutTracker) cloutTracker.classList.remove('hidden');
 
-    // Use actual follower counts from scan history
-    // Each scan now stores followerCount - the real follower count from profile API
-    const recentHistory = scanHistory.slice(-7); // Last 7 scans
-    const points = recentHistory.map(scan => scan.followerCount || scan.followingCount || 0);
+    // Group scans by Day (YYYY-MM-DD) to ensure one point per day
+    const scansByDay = {};
+    scanHistory.forEach(scan => {
+        // Use local date string for bucketing
+        const dateKey = new Date(scan.timestamp).toLocaleDateString();
+        // Keep the latest scan for each day
+        if (!scansByDay[dateKey] || scan.timestamp > scansByDay[dateKey].timestamp) {
+            scansByDay[dateKey] = scan;
+        }
+    });
+
+    // Sort days chronologically
+    const sortedDays = Object.values(scansByDay).sort((a, b) => a.timestamp - b.timestamp);
+
+    // Calculate Deltas between consecutive days
+    // If we only have 1 day of data, we can't show growth trend yet (or it's 0)
+    let deltas = [];
+    if (sortedDays.length < 2) {
+        // If we have at least one scan, assume 0 growth for that day (baseline)
+        deltas = [0];
+    } else {
+        for (let i = 1; i < sortedDays.length; i++) {
+            const currentVal = sortedDays[i].followerCount || 0; // Strict followerCount
+            const prevVal = sortedDays[i - 1].followerCount || 0;
+            deltas.push(currentVal - prevVal);
+        }
+        // If the latest day (Today) has 0 delta, it will rightly be 0.
+        // If we want to ensure "Today" is always represented even if no change from yesterday:
+        // The loop above covers it IF "Today" exists in scan history.
+    }
+
+    // Take last 7 days of growth
+    const points = deltas.slice(-7);
 
     // Allow rendering with 1 point (show flat line)
+    // If points is empty but we have history, show [0]
+    if (points.length === 0 && scanHistory.length > 0) points.push(0);
     if (points.length === 0) return;
 
     const min = Math.min(...points);
@@ -389,8 +420,8 @@ const renderCloutTracker = (scanHistory) => {
     // SVG Generation Constants
     const width = 200;
     const height = 40;
-    const padding = 2;
-    const step = width / (points.length - 1);
+    const padding = 4; // Slightly more padding to avoid clipping stroke
+    const step = points.length > 1 ? width / (points.length - 1) : width;
 
     // Calculate Y coordinates
     const getY = (val) => height - padding - ((val - min) / range * (height - padding * 2));
