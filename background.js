@@ -598,6 +598,10 @@ const startUnfollowProcess = async (usersToUnfollow) => {
 
         masterState.unfollowedCount++;
         masterState.progress = Math.round((masterState.unfollowedCount / usersToUnfollow.length) * 100);
+
+        // Update status message for UI
+        masterState.statusMessage = `Processed ${masterState.unfollowedCount} / ${usersToUnfollow.length} users`;
+
         broadcastUpdate();
 
         // Safety Delay
