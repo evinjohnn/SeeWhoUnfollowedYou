@@ -11,8 +11,8 @@ import {
 let state = {
     // We synchronize this with Background
     status: 'initial',
-    results: [],
-    snakes: [], // [NEW] History source
+    followingList: [], // Renamed from 'results' for clarity
+    snakes: [], // History source for lost followers
     whitelisted: [],
     selectedUsers: new Set(),
     currentTab: 'strangers',
@@ -525,7 +525,7 @@ const checkReturningUser = async () => {
 
     if (hasPreviousScan) {
         // Populate global state immediately
-        state.results = storage.lastScanResults;
+        state.followingList = storage.lastScanResults;
         state.snakes = storage.snakes || [];
 
         // Show returning user view with summary
@@ -685,7 +685,7 @@ const init = async () => {
             //   This app scans "Following" and "Followers".
             //   "results" usually implies "people who don't follow back" (Unfollowers/Strangers).
             //   Let's check 'renderResults' tabs.
-            //   - Strangers: state.results (people I follow who don't follow me back)
+            //   - Strangers: state.followingList (people I follow who don't follow me back)
             //   - Snakes: state.snakes (people who unfollowed me)
             // The user wants: "followers, snakes, unfollowers list".
             // I need the full *Followers* list too? 
@@ -696,7 +696,7 @@ const init = async () => {
             // However, usually `scanHistory` has counts, but not full lists?
             // Wait, `lastScanResults` might be the "Don't follow back" list.
             // Implementation:
-            // 1. Strangers (Unfollowers/Not Following Back): state.results
+            // 1. Strangers (Unfollowers/Not Following Back): state.followingList
             // 2. Snakes (Lost Followers): state.snakes
             // 3. Followers: Do we have them?
             // If not, I'll export what is available and maybe `state.whitelisted`.
@@ -709,8 +709,8 @@ const init = async () => {
             const esc = (text) => text ? `"${text.toString().replace(/"/g, '""')}"` : "";
 
             // 1. Unfollowers (Strangers - people I follow but they don't follow back)
-            // In init(), state.results is populated from storage.lastScanResults
-            const strangers = state.results || [];
+            // In init(), state.followingList is populated from storage.lastScanResults
+            const strangers = state.followingList || [];
             strangers.forEach(user => {
                 csvContent += `${esc(user.id)},${esc(user.username)},${esc(user.full_name)},Not Following Back,${esc(new Date().toISOString())}\n`;
             });
@@ -768,7 +768,7 @@ const showPreviousResults = async () => {
     const storage = await chrome.storage.local.get(['lastScanResults', 'snakes']);
 
     if (storage.lastScanResults) {
-        state.results = storage.lastScanResults;
+        state.followingList = storage.lastScanResults;
         state.snakes = storage.snakes || [];
         state.status = 'results';
 
@@ -817,7 +817,7 @@ const syncWithBackground = async () => {
 
 const updateFromBackground = (bgState) => {
     // Merge state from background
-    state.results = bgState.results || [];
+    state.followingList = bgState.followingList || [];
     state.snakes = bgState.snakes || [];
     state.progress = bgState.progress || 0;
     state.scannedCount = bgState.scannedCount || 0;
@@ -840,11 +840,11 @@ const updateFromBackground = (bgState) => {
     } else if (bgState.status === 'idle') {
         // Idle: check if scan just completed
         const wasScanningBefore = state.status === 'scanning';
-        state.status = state.results.length > 0 ? 'results' : 'initial';
+        state.status = state.followingList.length > 0 ? 'results' : 'initial';
 
         // If scan just completed, go to results page
         if (document.getElementById('view-scanning').classList.contains('active')) {
-            if (wasScanningBefore && state.results.length > 0) {
+            if (wasScanningBefore && state.followingList.length > 0) {
                 // Scan completed - go to results page
                 showPreviousResults();
                 showCompletionBanner();
@@ -889,7 +889,7 @@ const startWhitelistProcess = async () => {
 
     // We need the full user objects, not just IDs
     const userObjects = usersToWhitelist.map(id => {
-        const source = state.currentTab === 'snakes' ? state.snakes : state.results;
+        const source = state.currentTab === 'snakes' ? state.snakes : state.followingList;
         return source.find(u => u.id === id);
     }).filter(Boolean);
 
@@ -997,13 +997,13 @@ const switchTab = (tabName) => {
 };
 
 const renderCounts = () => {
-    const totalRaw = state.results.length;
+    const totalRaw = state.followingList.length;
     const whitelistedCount = state.whitelisted.length;
     ui.countWhitelisted.textContent = whitelistedCount;
 
     // Strangers: In results, NOT in whitelist AND NOT mutual (follows_viewer)
     const strangersCount = totalRaw > 0
-        ? state.results.filter(u => !state.whitelisted.some(w => w.id === u.id) && !u.follows_viewer).length
+        ? state.followingList.filter(u => !state.whitelisted.some(w => w.id === u.id) && !u.follows_viewer).length
         : 0;
     ui.countStrangers.textContent = strangersCount;
 
@@ -1031,7 +1031,7 @@ const renderResults = () => {
     } else if (state.currentTab === 'whitelisted') {
         sourceList = state.whitelisted;
     } else {
-        sourceList = state.results;
+        sourceList = state.followingList;
     }
 
     const users = getUsersForDisplay(sourceList, state.whitelisted, state.currentTab, state.searchTerm, state.filters);

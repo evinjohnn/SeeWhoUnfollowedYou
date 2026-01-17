@@ -2,6 +2,7 @@
 import {
     sleep,
     urlGenerator,
+    followersUrlGenerator,
     unfollowUserUrlGenerator,
     getCookie,
     fetchUserProfile
@@ -18,10 +19,12 @@ let masterState = {
     unfollowedCount: 0, // Track unfollow progress
     totalToScan: 0,
     scanCursor: null,
-    results: [],
-    snakes: [], // [NEW] Lost connections
+    followingList: [],   // Renamed from 'results' for clarity
+    fanList: [],         // Followers list for Snake detection
+    snakes: [],          // Lost connections
     unfollowQueue: [],
-    currentTabId: null
+    currentTabId: null,
+    lastErrorReason: null // For diagnostics
 };
 
 // Auto-recover from error state after 3 seconds
@@ -36,7 +39,7 @@ const recoverFromError = () => {
 // Load initial state (snakes need to persist)
 chrome.storage.local.get(['snakes', 'lastScanResults'], (data) => {
     if (data.snakes) masterState.snakes = data.snakes;
-    if (data.lastScanResults) masterState.results = data.lastScanResults;
+    if (data.lastScanResults) masterState.followingList = data.lastScanResults;
 });
 
 // Enable autoscan by default on first install
@@ -135,7 +138,7 @@ const broadcastUpdate = () => {
 const startScanProcess = async (isAuto = false) => {
     if (masterState.status === 'scanning') return;
     masterState.status = 'scanning';
-    masterState.results = []; // Following List (For Unfollowers)
+    masterState.followingList = []; // Following List (For Unfollowers)
     masterState.fanList = []; // Followers List (For Snakes)
     masterState.scanCursor = null;
     masterState.totalToScan = -1;
@@ -172,11 +175,11 @@ const startScanProcess = async (isAuto = false) => {
                 masterState.scanCursor = edgeFollow.page_info.end_cursor;
 
                 const nodes = edgeFollow.edges.map(e => e.node);
-                masterState.results.push(...nodes);
+                masterState.followingList.push(...nodes);
                 masterState.scannedCount += nodes.length;
 
                 // Progress (0-50% for Phase 1)
-                const phase1Progress = (masterState.results.length / masterState.totalToScan) * 50;
+                const phase1Progress = (masterState.followingList.length / masterState.totalToScan) * 50;
                 masterState.progress = Math.min(50, Math.round(phase1Progress));
                 broadcastUpdate();
 
@@ -261,13 +264,16 @@ const startScanProcess = async (isAuto = false) => {
 
             // Clean up: Remove snakes if they appear in CurrentFanList (Re-followed)
             previousSnakes = previousSnakes.filter(s => !currentFanIds.has(s.id));
+
+            // Sort snakes by detected_at DESC (newest first)
+            previousSnakes.sort((a, b) => (b.detected_at || 0) - (a.detected_at || 0));
         }
 
         // 4. Update History (For Net Growth Graph)
         const scanHistory = storage.scanHistory || [];
         const historyEntry = {
             timestamp: Date.now(),
-            followingCount: masterState.results.length,
+            followingCount: masterState.followingList.length,
             followerCount: masterState.fanList.length, // Accurate from scan
             newSnakesCount: newSnakes.length
         };
@@ -278,7 +284,7 @@ const startScanProcess = async (isAuto = false) => {
         // 5. Save State
         masterState.snakes = previousSnakes;
         await chrome.storage.local.set({
-            lastScanResults: masterState.results, // Save Following List for Unfollower identification in UI
+            lastScanResults: masterState.followingList, // Save Following List for Unfollower identification in UI
             lastFanList: masterState.fanList,     // Save Fan List for next Snake detection
             lastScanTime: Date.now(),
             snakes: masterState.snakes,
@@ -291,6 +297,7 @@ const startScanProcess = async (isAuto = false) => {
     } catch (err) {
         console.error("Scan error", err);
         masterState.status = 'error';
+        masterState.lastErrorReason = err.message || err.toString(); // Capture for diagnostics
         broadcastUpdate();
         setTimeout(recoverFromError, 3000);
     }
@@ -328,7 +335,7 @@ const startUnfollowProcess = async (usersToUnfollow) => {
             });
 
             // Update master results to reflect unfollowing
-            masterState.results = masterState.results.filter(u => u.id !== userId);
+            masterState.followingList = masterState.followingList.filter(u => u.id !== userId);
 
         } catch (e) {
             console.error(`Failed to unfollow ${userId}`, e);
@@ -343,7 +350,7 @@ const startUnfollowProcess = async (usersToUnfollow) => {
     }
 
     // Persist updated results to storage after unfollowing
-    await chrome.storage.local.set({ lastScanResults: masterState.results });
+    await chrome.storage.local.set({ lastScanResults: masterState.followingList });
 
     masterState.status = 'idle';
     broadcastUpdate();
