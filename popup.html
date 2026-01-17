@@ -229,14 +229,26 @@
                         <label>Unfollow Delay (ms)</label>
                         <input type="number" id="setting-unfollow-delay" value="4000" min="1000">
                     </div>
-                    <div class="form-group" style="display:flex; align-items:center; gap:8px;">
-                        <input type="checkbox" id="setting-autoscan" style="width:auto;">
-                        <label for="setting-autoscan" style="margin:0;">Enable Auto-Scan (Daily)</label>
+
+                    <div class="form-section-divider"></div>
+
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="setting-autoscan">
+                        <label for="setting-autoscan">Enable Auto-Scan (Daily)</label>
+                    </div>
+
+                    <div class="form-group" style="margin-top: 16px;">
+                        <label style="margin-bottom: 8px; display:block;">Data Management</label>
+                        <button type="button" id="btn-download-csv" class="btn-secondary-block"
+                            style="width:100%; justify-content:center;">
+                            Download CSV Info
+                        </button>
                     </div>
                 </form>
             </div>
             <div class="modal-footer">
                 <button class="btn-secondary btn-close-modal">Cancel</button>
+                <div style="flex: 1;"></div>
                 <button id="btn-save-settings" class="btn-primary">Save Changes</button>
             </div>
         </div>

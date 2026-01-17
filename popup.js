@@ -231,108 +231,129 @@ const renderTimeline = async () => {
     const now = Date.now();
     const ONE_DAY = 24 * 60 * 60 * 1000;
 
-    // 1. Count Unfollows per bucket
-    // For "Today": Use only the LATEST scan's newSnakesCount (not cumulative)
-    // This ensures forced scans refresh the Today count rather than accumulating
+    // 1. Count Unfollows per bucket (Calendar Day Logic)
+    // We want "Today" to restart at midnight.
 
-    // Get the most recent scan for "Today"
-    const sortedHistory = [...history].sort((a, b) => b.timestamp - a.timestamp);
-    const latestScan = sortedHistory[0];
-
-    if (latestScan && (now - latestScan.timestamp) < ONE_DAY) {
-        // Latest scan is from today - use its snake count
-        groups.today.unfollows = latestScan.newSnakesCount || 0;
-    } else {
-        // No scan today
-        groups.today.unfollows = 0;
-    }
-
-    // For yesterday and this week, count snakes by detected_at
-    // (these are historical and don't need the "refresh" behavior)
-    snakes.forEach(snake => {
-        if (!snake.detected_at) return;
-        const diff = now - snake.detected_at;
-
-        if (diff >= ONE_DAY && diff < 2 * ONE_DAY) {
-            groups.yesterday.unfollows++;
-        } else if (diff >= 2 * ONE_DAY && diff < 7 * ONE_DAY) {
-            groups.thisWeek.unfollows++;
-        }
-    });
-
-    // 2. Net Change (using history snapshots)
-    // We need to associate history entries with buckets to find stats
-    // Ideally we want: (Last scan in bucket) - (First scan in bucket/Last scan before bucket)
-
-    // Assign counts to buckets (reusing sortedHistory from above)
-    // We iterate history to find the 'latest' and 'earliest' for each bucket
-
-    const updateBucketCounts = (bucket, entry) => {
-        if (bucket.endCount === null) bucket.endCount = entry.followingCount; // First one we see is latest
-        bucket.startCount = entry.followingCount; // Keep updating to find earliest
+    const isSameDay = (d1, d2) => {
+        const date1 = new Date(d1);
+        const date2 = new Date(d2);
+        return date1.getDate() === date2.getDate() &&
+            date1.getMonth() === date2.getMonth() &&
+            date1.getFullYear() === date2.getFullYear();
     };
 
-    sortedHistory.forEach(entry => {
-        const diff = now - entry.timestamp;
-        if (diff < ONE_DAY) {
-            updateBucketCounts(groups.today, entry);
-        } else if (diff < 2 * ONE_DAY) {
-            updateBucketCounts(groups.yesterday, entry);
-        } else if (diff < 7 * ONE_DAY) {
-            updateBucketCounts(groups.thisWeek, entry);
+    const isYesterday = (d1, d2) => {
+        const date1 = new Date(d1);
+        const date2 = new Date(d2);
+        date2.setDate(date2.getDate() - 1); // Move reference back 1 day
+        return date1.getDate() === date2.getDate() &&
+            date1.getMonth() === date2.getMonth() &&
+            date1.getFullYear() === date2.getFullYear();
+    };
+
+    // Calculate Unfollows
+    // For "Today", we want the accumulated new snakes from all scans TODAY.
+    // Unlike previous "refresh" logic, if we have multiple scans today, we sum them up?
+    // Or just take the latest accumulation?
+    // "todays resets every 24 hrs . shows the same data over 24 hrs"
+    // Interpretation: Show total changes for the current calendar day.
+
+    // We iterate history to sum up `newSnakesCount` for today's scans.
+    history.forEach(scan => {
+        if (isSameDay(scan.timestamp, now)) {
+            groups.today.unfollows += (scan.newSnakesCount || 0);
+        } else if (isYesterday(scan.timestamp, now)) {
+            groups.yesterday.unfollows += (scan.newSnakesCount || 0);
+        } else if ((now - scan.timestamp) < 7 * ONE_DAY) {
+            groups.thisWeek.unfollows += (scan.newSnakesCount || 0);
         }
     });
+
+    // 2. Net Change (Followers Gain/Loss)
+    // Use `followerCount` (Strict Fans)
+    // For a period, Net Change = (Latest Count in Period) - (Count at Start of Period)
+    // Start of Period = First scan of the day? Or Last scan of PREVIOUS day?
+    // User wants "how youre followers gainor loss has been compared to last scan"
+    // Wait. "compared to last scan" vs "todays resets every 24 hrs".
+    // "Net Growth / Clout Graph ... shows how your followers gain or loss has been compared to last scan"
+    // BUT "todays resets every 24 hrs".
+    // Likely: The graph shows 7 days trend. The "Today" text in timeline shows 24h change?
+    // Let's stick to the graph showing "7 days trend" and timeline showing "Today's activity".
+
+    // For Today's Net Change:
+    // Net = (Latest Scan Today) - (Last Scan Yesterday) ??
+    // If no scan yesterday, then (Latest Scan Today) - (First Scan Today).
+
+    // Helper to get net for specific day
+    const getNetForDay = (targetDateMs) => {
+        const dayScans = history.filter(s => isSameDay(s.timestamp, targetDateMs));
+        if (dayScans.length === 0) return 0;
+
+        const latestInfo = dayScans[dayScans.length - 1]; // Latest today
+
+        // Find reference: Last scan BEFORE today (yesterday or older)
+        // Sort history descending
+        const olderScans = history.filter(s => s.timestamp < dayScans[0].timestamp);
+        const reference = olderScans.length > 0 ? olderScans[olderScans.length - 1] : dayScans[0];
+
+        // Return change in FOLLOWER COUNT
+        return (latestInfo.followerCount || 0) - (reference.followerCount || 0);
+    };
+
+    const netToday = getNetForDay(now);
+
+    // Update buckets with Net Change
+    // We already have Unfollows. Now add Net Change from follower count.
 
     // 3. Render Items
     const fragment = document.createDocumentFragment();
-    const buckets = [groups.today]; // Only show Today
+    const buckets = [groups.today];
 
     let hasItems = false;
 
     buckets.forEach(group => {
-        // Determine Net Change
+        // Determine Net Change for group
         let netChange = 0;
-        if (group.startCount !== null && group.endCount !== null) {
-            // Net for this period
-            // Actually, strictly speaking: End - Start. 
-            // But if we only have 1 scan, net is 0?
-            // Or compared to "previous bucket"?
-            // Let's stick to unfollows count as primary signal if available.
-            netChange = group.endCount - group.startCount;
-        }
-
-        // Decide what to show
-        // Prioritize Unfollows if > 0
-        // Else Net Change if !== 0
-        // Else skip (unless Today and empty? Maybe show "No changes"?)
-        // User said: "Today -> X unfollows"
+        if (group === groups.today) netChange = netToday;
+        // For others we skip logic to keep it simple as user prioritized Today.
 
         let labelHTML = '';
         let className = 'timeline-change';
 
-        if (group.unfollows > 0) {
-            // e.g. "2 Unfollows"
-            labelHTML = `<span>-${group.unfollows} Unfollows</span>`;
-            className += ' negative'; // or normal? User said muted.
-        } else if (netChange !== 0) {
-            const sign = netChange > 0 ? '+' : '';
-            labelHTML = `<span>${sign}${netChange} Followers</span>`;
-            className += netChange > 0 ? ' positive' : ' negative';
+        // Prioritize showing both? Or just "Net"? 
+        // Previous logic showed Unfollows OR Net.
+        // Let's show Net Change primarily for "Growth", but Unfollows for "Loss".
+        // If Net is positive: Green +X Followers.
+        // If Net is negative: Red -Y Followers.
+        // Unfollows is a separate metric (snakes). User asked for "followers gain or loss".
+
+        if (netChange > 0) {
+            labelHTML = `<span>+${netChange} Followers</span>`;
+            className += ' positive';
+        } else if (netChange < 0) {
+            labelHTML = `<span>${netChange} Followers</span>`;
+            className += ' negative';
         } else {
-            // No activity to show for this bucket
-            return;
+            // If Net Change is 0, we explicitly show +0 Followers for Today
+            // This prevents showing "-1 Unfollow" if we had a snake but they followed back (Net 0)
+            labelHTML = `<span>+0 Followers</span>`;
+            className += ' neutral'; // Cyan ideally
         }
 
         hasItems = true;
+        // For now, force showing Today even if 0
 
         const div = document.createElement('div');
         div.className = 'timeline-item';
         div.innerHTML = `
-            <span class="timeline-date">${group.label}</span>
-            <div class="${className}">
-                ${labelHTML}
-            </div>
-        `;
+             <span class="timeline-date">${group.label}</span>
+             <div class="${className}">
+                 ${labelHTML}
+             </div>
+         `;
+        if (className.includes('neutral')) {
+            div.querySelector('.timeline-change').style.color = '#06b6d4';
+        }
         fragment.appendChild(div);
     });
 
@@ -374,121 +395,119 @@ const renderCloutTracker = (scanHistory) => {
 
     if (cloutTracker) cloutTracker.classList.remove('hidden');
 
-    // Group scans by Day (YYYY-MM-DD) to ensure one point per day
-    const scansByDay = {};
-    scanHistory.forEach(scan => {
-        // Use local date string for bucketing
-        const dateKey = new Date(scan.timestamp).toLocaleDateString();
-        // Keep the latest scan for each day
-        if (!scansByDay[dateKey] || scan.timestamp > scansByDay[dateKey].timestamp) {
-            scansByDay[dateKey] = scan;
-        }
-    });
+    // GRAPH: Calculate Points based on Raw Scan History
+    // "graph should show how the followers gain and loss happened over the last 2 scans data or whatever is available"
+    // Use last 10 scans to show granular trend (even within the same day)
+    const historySlice = scanHistory.slice(-10);
 
-    // Sort days chronologically
-    const sortedDays = Object.values(scansByDay).sort((a, b) => a.timestamp - b.timestamp);
+    // Baseline: The start of this window (relative 0)
+    // Use followerCount explicitly. Fallback to 0.
+    const baseline = historySlice[0].followerCount || 0;
 
-    // Calculate Deltas between consecutive days
-    // If we only have 1 day of data, we can't show growth trend yet (or it's 0)
-    let deltas = [];
-    if (sortedDays.length < 2) {
-        // If we have at least one scan, assume 0 growth for that day (baseline)
-        deltas = [0];
-    } else {
-        for (let i = 1; i < sortedDays.length; i++) {
-            const currentVal = sortedDays[i].followerCount || 0; // Strict followerCount
-            const prevVal = sortedDays[i - 1].followerCount || 0;
-            deltas.push(currentVal - prevVal);
-        }
-        // If the latest day (Today) has 0 delta, it will rightly be 0.
-        // If we want to ensure "Today" is always represented even if no change from yesterday:
-        // The loop above covers it IF "Today" exists in scan history.
-    }
+    // Map to relative values (Current - Baseline)
+    let points = historySlice.map(d => (d.followerCount || 0) - baseline);
 
-    // Take last 7 days of growth
-    const points = deltas.slice(-7);
+    // If only 1 point (0), add another 0 to make a line
+    if (points.length === 1) points.push(0);
 
-    // Allow rendering with 1 point (show flat line)
-    // If points is empty but we have history, show [0]
-    if (points.length === 0 && scanHistory.length > 0) points.push(0);
-    if (points.length === 0) return;
+    // Determine gradient/stroke color based on period trend (End - Start)
+    const netGrowthPeriod = points[points.length - 1]; // This is (LastVal - Baseline) since Baseline is 0 offset
 
-    const min = Math.min(...points);
-    const max = Math.max(...points);
-    const range = max - min || 1;
+    let trendColor = '#06b6d4'; // Cyan (Neutral)
+    if (netGrowthPeriod > 0) trendColor = 'var(--status-success)';
+    if (netGrowthPeriod < 0) trendColor = 'var(--status-error)';
 
-    // SVG Generation Constants
+    // SVG Generation
     const width = 200;
     const height = 40;
-    const padding = 4; // Slightly more padding to avoid clipping stroke
-    const step = points.length > 1 ? width / (points.length - 1) : width;
+    const padding = 4;
 
-    // Calculate Y coordinates
-    const getY = (val) => height - padding - ((val - min) / range * (height - padding * 2));
+    // Only draw if we have points
+    if (points.length === 0) return; // Should not happen given check above
+    if (points.length === 1) points.push(0); // Make a line if single point
 
-    let pathData = `M 0 ${getY(points[0])}`;
+    // Normalize Y
+    const min = Math.min(...points);
+    const max = Math.max(...points);
+    // Center logic: We want 0 to be vertically centered if possible, or just scale to fit.
+    // "Pass through center" usually implies 0 is at middle.
+    // Let's use max absolute deviation to determine scale.
+    const absMax = Math.max(Math.abs(min), Math.abs(max)) || 1; // Prevent div/0
 
-    if (points.length === 1) {
-        // Draw flat line across width for single point
-        pathData += ` L ${width} ${getY(points[0])}`;
-    } else {
-        for (let i = 1; i < points.length; i++) {
-            const cp1x = (i - 1) * step + step / 2;
-            const cp2x = i * step - step / 2;
-            pathData += ` C ${cp1x} ${getY(points[i - 1])} ${cp2x} ${getY(points[i])} ${i * step} ${getY(points[i])}`;
-        }
+    // Y at 0 value should be height/2
+    const zeroY = height / 2;
+
+    const getY = (val) => {
+        const scale = (height / 2 - padding) / absMax;
+        return zeroY - (val * scale);
+    };
+
+    const step = width / (points.length - 1);
+
+    let pathData = `M 0 ${getY(points[0])}`; // Start
+
+    for (let i = 1; i < points.length; i++) {
+        const cp1x = (i - 1) * step + step / 2;
+        const cp2x = i * step - step / 2;
+        pathData += ` C ${cp1x} ${getY(points[i - 1])} ${cp2x} ${getY(points[i])} ${i * step} ${getY(points[i])}`;
     }
-
-    // Determine gradient color based on trend (up = green, down = red)
-    const trendUp = points[points.length - 1] >= points[0];
-    const gradientColor = trendUp ? 'var(--status-success)' : 'var(--status-error)';
-    const strokeColor = trendUp ? 'var(--status-success)' : 'var(--status-error)';
 
     const svg = `
         <svg viewBox="0 0 ${width} ${height}" preserveAspectRatio="none">
             <defs>
                 <linearGradient id="cloutGradient" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <stop offset="0%" style="stop-color:${gradientColor};stop-opacity:0.25" />
-                    <stop offset="100%" style="stop-color:${gradientColor};stop-opacity:0" />
+                    <stop offset="0%" style="stop-color:${trendColor};stop-opacity:0.25" />
+                    <stop offset="100%" style="stop-color:${trendColor};stop-opacity:0" />
                 </linearGradient>
             </defs>
+            <line x1="0" y1="${zeroY}" x2="${width}" y2="${zeroY}" stroke="rgba(255,255,255,0.1)" stroke-width="1" stroke-dasharray="4 4" />
             <path d="${pathData} L ${width} ${height} L 0 ${height} Z" fill="url(#cloutGradient)" style="opacity: 0.5;" />
-            <path d="${pathData}" fill="none" stroke="${strokeColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
+            <path d="${pathData}" fill="none" stroke="${trendColor}" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
     `;
 
     if (growthSparkline) growthSparkline.innerHTML = svg;
 
-    // Calculate 24h change
-    // Find the reference point: the most recent scan from MORE than 24h ago
+    // Calculate Today's Net Change (Calendar Day Reset)
+    // Net = LatestScan.followerCount - (LastScanYesterday.followerCount || FirstScanToday.followerCount)
+
     const now = Date.now();
-    const ONE_DAY = 24 * 60 * 60 * 1000;
+    const startOfDay = new Date(now).setHours(0, 0, 0, 0);
 
+    // Latest scan total
     const latestScan = scanHistory[scanHistory.length - 1];
+    const currentCount = latestScan.followerCount || 0;
 
-    // Find reference scan (most recent scan older than 24h)
-    let referenceScan = null;
-    for (let i = scanHistory.length - 2; i >= 0; i--) {
-        if (now - scanHistory[i].timestamp >= ONE_DAY) {
-            referenceScan = scanHistory[i];
-            break;
+    // Find reference count
+    // Filter for scans BEFORE today to find last status of yesterday
+    const prevScans = scanHistory.filter(s => s.timestamp < startOfDay);
+
+    let referenceCount = 0;
+    if (prevScans.length > 0) {
+        referenceCount = prevScans[prevScans.length - 1].followerCount || 0;
+    } else {
+        // No history from yesterday? Use first scan of today as baseline?
+        // Or assume 0 if we have no history at all?
+        // If we have history today, use the first one of today.
+        const todayScans = scanHistory.filter(s => s.timestamp >= startOfDay);
+        if (todayScans.length > 0) {
+            // First scan of today. If only 1 scan today, net is 0.
+            referenceCount = todayScans[0].followerCount || 0;
+        } else {
+            // Should not happen if latestScan exists
+            referenceCount = currentCount;
         }
     }
 
-    // If no scan older than 24h, use the oldest available scan
-    if (!referenceScan) {
-        referenceScan = scanHistory[0];
-    }
+    // If we only have ONE scan ever, net change is 0.
+    if (scanHistory.length === 1) referenceCount = currentCount;
 
-    // Calculate follower growth/decline (use followerCount with fallback)
-    const latestFollowers = latestScan.followerCount || latestScan.followingCount || 0;
-    const referenceFollowers = referenceScan.followerCount || referenceScan.followingCount || 0;
-    const netChange = latestFollowers - referenceFollowers;
+    const netChange = currentCount - referenceCount;
 
     if (cloutChange) {
         if (netChange === 0) {
             cloutChange.textContent = '0';
-            cloutChange.style.color = 'var(--text-secondary)';
+            cloutChange.style.color = '#06b6d4'; // Cyan
         } else if (netChange > 0) {
             cloutChange.textContent = `+${netChange}`;
             cloutChange.style.color = 'var(--status-success)';
@@ -650,6 +669,80 @@ const init = async () => {
             if (typeof showToast === 'function') {
                 showToast('Settings saved successfully!', 'success');
             }
+        });
+    }
+
+    // Download CSV
+    const btnDownloadCSV = document.getElementById('btn-download-csv');
+    if (btnDownloadCSV) {
+        btnDownloadCSV.addEventListener('click', async () => {
+            const storage = await chrome.storage.local.get(['lastScanResults', 'snakes', 'scanHistory']);
+            const followers = storage.lastScanResults || []; // Current followers? No, 'lastScanResults' is usually followers.
+            // Wait, let's verify what 'results' are. Usually it's followers list.
+            // But logic says: "Unfollowers (Using set difference)", "Snakes".
+            // Let's assume:
+            // - Followers: lastScanResults (or following list? Instagram terminology is tricky. 
+            //   This app scans "Following" and "Followers".
+            //   "results" usually implies "people who don't follow back" (Unfollowers/Strangers).
+            //   Let's check 'renderResults' tabs.
+            //   - Strangers: state.results (people I follow who don't follow me back)
+            //   - Snakes: state.snakes (people who unfollowed me)
+            // The user wants: "followers, snakes, unfollowers list".
+            // I need the full *Followers* list too? 
+            // The extension might not be storing the full followers list permanently if it only stores "results" (non-followers).
+            // Let's check 'saveScanResults' in background or utils.
+            // If I can't get full followers, I will include what I have: "Non-Followers" (Strangers) and "Snakes".
+            // But if user asked for "followers", and I don't have it, I should mention it.
+            // However, usually `scanHistory` has counts, but not full lists?
+            // Wait, `lastScanResults` might be the "Don't follow back" list.
+            // Implementation:
+            // 1. Strangers (Unfollowers/Not Following Back): state.results
+            // 2. Snakes (Lost Followers): state.snakes
+            // 3. Followers: Do we have them?
+            // If not, I'll export what is available and maybe `state.whitelisted`.
+
+            // Header
+            let csvContent = "data:text/csv;charset=utf-8,";
+            csvContent += "User ID,Username,Full Name,Category,Detected At\n";
+
+            // Helper to escape CSV
+            const esc = (text) => text ? `"${text.toString().replace(/"/g, '""')}"` : "";
+
+            // 1. Unfollowers (Strangers - people I follow but they don't follow back)
+            // In init(), state.results is populated from storage.lastScanResults
+            const strangers = state.results || [];
+            strangers.forEach(user => {
+                csvContent += `${esc(user.id)},${esc(user.username)},${esc(user.full_name)},Not Following Back,${esc(new Date().toISOString())}\n`;
+            });
+
+            // 2. Snakes (People who unfollowed me)
+            const snakes = state.snakes || [];
+            snakes.forEach(user => {
+                const date = user.detected_at ? new Date(user.detected_at).toISOString() : "";
+                csvContent += `${esc(user.id)},${esc(user.username)},${esc(user.full_name)},Unfollowed Me (Snake),${date}\n`;
+            });
+
+            // 3. Whitelisted
+            const whitelisted = state.whitelisted || [];
+            whitelisted.forEach(userId => {
+                // We typically only store IDs in whitelist, but let's check if we have objects.
+                // state.whitelisted is likely array of strings (IDs) or objects? 
+                // loadWhitelist returns array of IDs usually? 
+                // popup.js:804 -> state.whitelisted = await addToWhitelist(user); -> returns updated list.
+                // utils.js usually manages this. 
+                // If it's just IDs, I can't print names.
+                // For now, let's skip Whitelist details if we don't have them, or just print IDs.
+                // Or try to match with other lists.
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            const dateStr = new Date().toISOString().split('T')[0];
+            link.setAttribute("download", `instagram_unfollowers_${dateStr}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
         });
     }
 

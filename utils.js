@@ -41,7 +41,21 @@ export const urlGenerator = async (cursor) => {
     if (cursor) {
         variables.after = cursor;
     }
-    return `https://www.instagram.com/graphql/query/?query_hash=${queryHash}&variables=${encodeURIComponent(JSON.stringify(variables))}`;
+    return `https://www.instagram.com/graphql/query/?query_hash=${queryHash}&variables=${encodeURIComponent(JSON.stringify(variables))}&_=${Date.now()}`;
+};
+
+export const followersUrlGenerator = async (cursor) => {
+    const userId = await getCookie("ds_user_id");
+    if (!userId) return null;
+    const queryHash = "c76146de99bb02f6415203be841dd25a";
+    const variables = {
+        id: userId,
+        include_reel: true,
+        fetch_mutual: false,
+        first: 24
+    };
+    if (cursor) variables.after = cursor;
+    return `https://www.instagram.com/graphql/query/?query_hash=${queryHash}&variables=${encodeURIComponent(JSON.stringify(variables))}&_=${Date.now()}`;
 };
 
 export const unfollowUserUrlGenerator = (id) => {
@@ -71,7 +85,7 @@ export const fetchUserProfile = async () => {
             include_live_status: false
         };
 
-        const url = `https://www.instagram.com/graphql/query/?query_hash=${queryHash}&variables=${encodeURIComponent(JSON.stringify(variables))}`;
+        const url = `https://www.instagram.com/graphql/query/?query_hash=${queryHash}&variables=${encodeURIComponent(JSON.stringify(variables))}&_=${Date.now()}`;
 
         const response = await fetch(url);
         const json = await response.json();

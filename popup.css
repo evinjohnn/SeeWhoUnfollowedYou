@@ -1962,3 +1962,54 @@ button {
     border-right: 1px solid rgba(0, 229, 255, 0.4);
     border-bottom: 1px solid rgba(0, 229, 255, 0.4);
 }
+/* Button - Pill Shape and Colors */
+.btn-pill {
+    padding: 8px 16px;
+    border-radius: 9999px; /* Pill shape */
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: none;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.btn-pill:hover {
+    filter: brightness(1.1);
+    transform: translateY(-1px);
+}
+
+.btn-cancel {
+    background: transparent;
+    border: 1px solid var(--status-error);
+    color: var(--status-error);
+}
+
+.btn-cancel:hover {
+    background: rgba(255, 82, 82, 0.1);
+}
+
+.btn-save {
+    background: transparent;
+    border: 1px solid #06b6d4; /* Cyan */
+    color: #06b6d4;
+}
+
+.btn-save:hover {
+    background: rgba(6, 182, 212, 0.1);
+    box-shadow: 0 0 8px rgba(6, 182, 212, 0.2);
+}
+
+.btn-download {
+    background: transparent;
+    border: 1px solid var(--status-success); /* Green */
+    color: var(--status-success);
+    margin-right: 8px;
+}
+
+.btn-download:hover {
+    background: rgba(0, 255, 102, 0.1);
+    box-shadow: 0 0 8px rgba(0, 255, 102, 0.2);
+}

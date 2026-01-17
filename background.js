@@ -131,44 +131,42 @@ const broadcastUpdate = () => {
     }
 };
 
+// -- Main Scan Process --
 const startScanProcess = async (isAuto = false) => {
     if (masterState.status === 'scanning') return;
-
     masterState.status = 'scanning';
-    masterState.results = []; // Reset results on new scan
-    masterState.scannedCount = 0;
+    masterState.results = []; // Following List (For Unfollowers)
+    masterState.fanList = []; // Followers List (For Snakes)
     masterState.scanCursor = null;
     masterState.totalToScan = -1;
     masterState.progress = 0;
     broadcastUpdate();
 
-    // Logic similar to original popup.js but robust for background
     try {
+        // 1. Fetch User Profile First (Get Baseline Counts)
+        const profileData = await fetchUserProfile();
+        const currentFollowerCount = profileData?.followerCount || 0;
+        const currentFollowingCount = profileData?.followingCount || 0;
+
+        // PHASE 1: Scan "Following" List (To find Unfollowers)
+        // Unfollowers = People I follow who don't follow me back
+        masterState.totalToScan = currentFollowingCount;
         let hasNextPage = true;
         let consecutiveErrors = 0;
 
         while (hasNextPage && masterState.status === 'scanning') {
             const url = await urlGenerator(masterState.scanCursor);
-            if (!url) {
-                console.error("Failed to generate URL (missing cookies?)");
-                masterState.status = 'error';
-                broadcastUpdate();
-                setTimeout(recoverFromError, 3000); // Auto-recover after 3s
-                return;
-            }
+            if (!url) throw new Error("Failed to generate URL");
 
             try {
                 const response = await fetch(url);
                 const json = await response.json();
 
-                if (!json.data || !json.data.user) {
-                    throw new Error("Invalid structure");
-                }
+                if (!json.data?.user) throw new Error("Invalid structure");
 
                 const edgeFollow = json.data.user.edge_follow;
-                if (masterState.totalToScan === -1) {
-                    masterState.totalToScan = edgeFollow.count;
-                }
+                // Update total if needed, though we set it from profile
+                if (masterState.totalToScan === -1) masterState.totalToScan = edgeFollow.count;
 
                 hasNextPage = edgeFollow.page_info.has_next_page;
                 masterState.scanCursor = edgeFollow.page_info.end_cursor;
@@ -177,127 +175,124 @@ const startScanProcess = async (isAuto = false) => {
                 masterState.results.push(...nodes);
                 masterState.scannedCount += nodes.length;
 
-                // Update Progress
-                const p = Math.min(100, Math.round((masterState.scannedCount / masterState.totalToScan) * 100));
-                masterState.progress = p;
+                // Progress (0-50% for Phase 1)
+                const phase1Progress = (masterState.results.length / masterState.totalToScan) * 50;
+                masterState.progress = Math.min(50, Math.round(phase1Progress));
                 broadcastUpdate();
 
                 consecutiveErrors = 0;
-                // Delay
                 await sleep(1000 + Math.random() * 500);
 
             } catch (e) {
-                console.warn("Fetch error", e);
+                console.warn("Fetch error (Following)", e);
                 consecutiveErrors++;
                 if (consecutiveErrors > 3) break;
                 await sleep(2000);
             }
         }
 
-        // Done
+        // PHASE 2: Scan "Followers" List (To find Snakes)
+        // Snakes = People who were in Last Fan List but are NOT in Current Fan List
+        masterState.scanCursor = null; // Reset for Phase 2
+        hasNextPage = true;
+        consecutiveErrors = 0;
+        const totalFollowers = currentFollowerCount;
+
+        while (hasNextPage && masterState.status === 'scanning') {
+            const url = await followersUrlGenerator(masterState.scanCursor);
+            if (!url) break; // Should fail if no generator or cookie
+
+            try {
+                const response = await fetch(url);
+                const json = await response.json();
+
+                if (!json.data?.user) throw new Error("Invalid structure phase 2");
+
+                const edgeFollowedBy = json.data.user.edge_followed_by;
+                hasNextPage = edgeFollowedBy.page_info.has_next_page;
+                masterState.scanCursor = edgeFollowedBy.page_info.end_cursor;
+
+                const nodes = edgeFollowedBy.edges.map(e => e.node);
+                masterState.fanList.push(...nodes);
+
+                // Progress (50-100% for Phase 2)
+                const phase2Progress = (masterState.fanList.length / totalFollowers) * 50;
+                masterState.progress = Math.min(100, Math.round(50 + phase2Progress));
+                broadcastUpdate();
+
+                consecutiveErrors = 0;
+                await sleep(1000 + Math.random() * 500);
+
+            } catch (e) {
+                console.warn("Fetch error (Followers)", e);
+                consecutiveErrors++;
+                if (consecutiveErrors > 3) break;
+                await sleep(2000);
+            }
+        }
+
         masterState.status = 'idle';
         masterState.progress = 100;
 
-        // [NEW] History Logic
-        // 1. Load Last Scan
-        const storage = await chrome.storage.local.get(['lastScanResults']);
-        const lastScan = storage.lastScanResults || []; // Array of users
+        // 3. Post-Scan Analysis
+        const storage = await chrome.storage.local.get(['lastScanResults', 'lastFanList', 'snakes', 'scanHistory']);
+        // lastScanResults = Old Following List (Not used for Snakes anymore)
+        const previousFanList = storage.lastFanList || []; // List of Followers from last scan
+        let previousSnakes = storage.snakes || [];
 
+        // Detect Snakes (Lost Followers)
+        // Logic: Snake = Is in PreviousFanList AND NOT in CurrentFanList
         let newSnakes = [];
+        if (previousFanList.length > 0) {
+            const currentFanIds = new Set(masterState.fanList.map(u => u.id));
 
-        if (lastScan.length > 0) {
-            // 2. Identify Snakes (CORRECT LOGIC):
-            // Snakes = people who USED TO FOLLOW YOU but NO LONGER FOLLOW YOU
-            // 
-            // - In previous scan: follows_viewer = true (they followed you)
-            // - In current scan: follows_viewer = false OR they're not in your following list anymore
-            //
-            // This is different from people YOU unfollowed (which would just disappear from results)
-
-            // Build a map of current users for quick lookup
-            const currentUsersMap = new Map(masterState.results.map(u => [u.id, u]));
-
-            // Find snakes: people who followed you before but don't anymore
-            newSnakes = lastScan.filter(oldUser => {
-                // Only consider users who WERE following you in the last scan
-                if (!oldUser.follows_viewer) return false;
-
-                // Check current state
-                const currentUser = currentUsersMap.get(oldUser.id);
-
-                if (!currentUser) {
-                    // User is no longer in your following list
-                    // This means YOU unfollowed them - NOT a snake
-                    return false;
-                }
-
-                // User is still in your following list but no longer follows you back
-                // THIS is a snake - they unfollowed you
-                return !currentUser.follows_viewer;
+            newSnakes = previousFanList.filter(oldFan => {
+                return !currentFanIds.has(oldFan.id);
             });
 
-            // [FIX] Clean up existing snakes: 
-            // If a known snake is now following you again (follows_viewer = true), remove them
-            masterState.snakes = masterState.snakes.filter(snake => {
-                const currentUser = currentUsersMap.get(snake.id);
-                // Keep as snake only if they still don't follow you
-                return !currentUser || !currentUser.follows_viewer;
-            });
-
-            // Add new snakes to master list (avoid duplicates)
-            const existingSnakeIds = new Set(masterState.snakes.map(s => s.id));
-            newSnakes.forEach(snake => {
-                if (!existingSnakeIds.has(snake.id)) {
-                    // Mark detection date
-                    snake.detected_at = Date.now();
-                    masterState.snakes.push(snake);
+            // Merge Snakes
+            const existingSnakeIds = new Set(previousSnakes.map(s => s.id));
+            newSnakes.forEach(s => {
+                if (!existingSnakeIds.has(s.id)) {
+                    s.detected_at = Date.now();
+                    previousSnakes.push(s);
                 }
             });
 
-            // Persist Snakes
-            await chrome.storage.local.set({ snakes: masterState.snakes });
+            // Clean up: Remove snakes if they appear in CurrentFanList (Re-followed)
+            previousSnakes = previousSnakes.filter(s => !currentFanIds.has(s.id));
         }
 
-        // Fetch actual follower count from profile API
-        const profileData = await fetchUserProfile();
-        const actualFollowerCount = profileData?.followerCount || 0;
-
-        // 3. Save Current as Last + Timestamp for cooldown indicator
-        // Also save to scan history for comparison
-        const currentScanData = {
+        // 4. Update History (For Net Growth Graph)
+        const scanHistory = storage.scanHistory || [];
+        const historyEntry = {
             timestamp: Date.now(),
             followingCount: masterState.results.length,
-            followerCount: actualFollowerCount, // Actual follower count from API
+            followerCount: masterState.fanList.length, // Accurate from scan
             newSnakesCount: newSnakes.length
         };
 
-        // Load existing scan history
-        const historyStorage = await chrome.storage.local.get(['scanHistory']);
-        const scanHistory = historyStorage.scanHistory || [];
+        scanHistory.push(historyEntry);
+        if (scanHistory.length > 30) scanHistory.shift();
 
-        // Add current scan to history (keep last 10 scans)
-        scanHistory.push(currentScanData);
-        if (scanHistory.length > 10) {
-            scanHistory.shift(); // Remove oldest
-        }
-
+        // 5. Save State
+        masterState.snakes = previousSnakes;
         await chrome.storage.local.set({
-            lastScanResults: masterState.results,
+            lastScanResults: masterState.results, // Save Following List for Unfollower identification in UI
+            lastFanList: masterState.fanList,     // Save Fan List for next Snake detection
             lastScanTime: Date.now(),
-            scanHistory: scanHistory
+            snakes: masterState.snakes,
+            scanHistory: scanHistory,
+            lastAutoScanTime: isAuto ? Date.now() : (storage.lastAutoScanTime || 0)
         });
-
-        if (isAuto) {
-            chrome.storage.local.set({ lastAutoScanTime: Date.now() });
-        }
 
         broadcastUpdate();
 
     } catch (err) {
-        console.error("Scan fatal error", err);
+        console.error("Scan error", err);
         masterState.status = 'error';
         broadcastUpdate();
-        setTimeout(recoverFromError, 3000); // Auto-recover after 3s
+        setTimeout(recoverFromError, 3000);
     }
 };
 
