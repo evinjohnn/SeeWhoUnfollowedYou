@@ -131,33 +131,33 @@ const generateSummaryText = (currentResults, snakes, lastScanTime, newSnakesCoun
 // -- Show Completion Banner --
 // Displays scan completion banner with comparison summary
 const showCompletionBanner = async () => {
-    const storage = await chrome.storage.local.get(['scanHistory', 'lastScanResults', 'snakes']);
+    const storage = await chrome.storage.local.get(['scanHistory', 'snakes']);
     const scanHistory = storage.scanHistory || [];
-    const currentResults = storage.lastScanResults || [];
     const snakes = storage.snakes || [];
 
     let detailText = '';
 
-    if (scanHistory.length === 0) {
-        // First scan
+    if (scanHistory.length < 2) {
+        // First scan or not enough history
         detailText = 'First scan completed';
     } else {
-        // Compare with previous scan
-        const previousScan = scanHistory[scanHistory.length - 1];
-        const currentCount = currentResults.length;
-        const previousCount = previousScan.followingCount || 0;
-        const snakesCount = snakes.length;
+        // Compare LATEST scan with PREVIOUS scan (using followerCount for "fans")
+        const latestScan = scanHistory[scanHistory.length - 1];
+        const previousScan = scanHistory[scanHistory.length - 2];
 
-        const diff = currentCount - previousCount;
+        const currentFollowerCount = latestScan.followerCount || 0;
+        const previousFollowerCount = previousScan.followerCount || 0;
+        const diff = currentFollowerCount - previousFollowerCount;
+        const newSnakesCount = latestScan.newSnakesCount || 0;
         const timeAgo = formatRelativeTime(previousScan.timestamp);
 
-        if (snakesCount > 0 && diff !== 0) {
+        if (newSnakesCount > 0 && diff !== 0) {
             // Both changes
             const diffText = diff > 0 ? `+${diff} followers` : `${diff} followers`;
-            detailText = `${diffText} · ${snakesCount} unfollowed since ${timeAgo.toLowerCase()}`;
-        } else if (snakesCount > 0) {
+            detailText = `${diffText} · ${newSnakesCount} unfollowed since ${timeAgo.toLowerCase()}`;
+        } else if (newSnakesCount > 0) {
             // Only unfollows
-            detailText = `${snakesCount} ${snakesCount === 1 ? 'person' : 'people'} unfollowed you since ${timeAgo.toLowerCase()}`;
+            detailText = `${newSnakesCount} ${newSnakesCount === 1 ? 'person' : 'people'} unfollowed you since ${timeAgo.toLowerCase()}`;
         } else if (diff !== 0) {
             // Only follower count change
             const diffText = diff > 0 ? `+${diff} followers` : `${diff} followers`;
@@ -676,70 +676,69 @@ const init = async () => {
     const btnDownloadCSV = document.getElementById('btn-download-csv');
     if (btnDownloadCSV) {
         btnDownloadCSV.addEventListener('click', async () => {
-            const storage = await chrome.storage.local.get(['lastScanResults', 'snakes', 'scanHistory']);
-            const followers = storage.lastScanResults || []; // Current followers? No, 'lastScanResults' is usually followers.
-            // Wait, let's verify what 'results' are. Usually it's followers list.
-            // But logic says: "Unfollowers (Using set difference)", "Snakes".
-            // Let's assume:
-            // - Followers: lastScanResults (or following list? Instagram terminology is tricky. 
-            //   This app scans "Following" and "Followers".
-            //   "results" usually implies "people who don't follow back" (Unfollowers/Strangers).
-            //   Let's check 'renderResults' tabs.
-            //   - Strangers: state.followingList (people I follow who don't follow me back)
-            //   - Snakes: state.snakes (people who unfollowed me)
-            // The user wants: "followers, snakes, unfollowers list".
-            // I need the full *Followers* list too? 
-            // The extension might not be storing the full followers list permanently if it only stores "results" (non-followers).
-            // Let's check 'saveScanResults' in background or utils.
-            // If I can't get full followers, I will include what I have: "Non-Followers" (Strangers) and "Snakes".
-            // But if user asked for "followers", and I don't have it, I should mention it.
-            // However, usually `scanHistory` has counts, but not full lists?
-            // Wait, `lastScanResults` might be the "Don't follow back" list.
-            // Implementation:
-            // 1. Strangers (Unfollowers/Not Following Back): state.followingList
-            // 2. Snakes (Lost Followers): state.snakes
-            // 3. Followers: Do we have them?
-            // If not, I'll export what is available and maybe `state.whitelisted`.
+            const storage = await chrome.storage.local.get(['lastScanResults', 'lastFanList', 'snakes']);
+
+            // 1. Prepare Lists
+            const following = storage.lastScanResults || []; // All Following
+            const followers = storage.lastFanList || [];     // All Followers (Fans)
+            const snakes = storage.snakes || [];             // Lost Followers
+
+            // Create a set of follower IDs for fast lookup
+            const followerIds = new Set(followers.map(u => u.id));
+
+            // Derived: Non-Followers (People I follow who don't follow back)
+            // Logic: In 'following' BUT NOT in 'followers'
+            const nonFollowers = following.filter(u => !followerIds.has(u.id));
 
             // Header
             let csvContent = "data:text/csv;charset=utf-8,";
-            csvContent += "User ID,Username,Full Name,Category,Detected At\n";
+            csvContent += "User ID,Username,Full Name,Category,Profile URL\n";
 
             // Helper to escape CSV
             const esc = (text) => text ? `"${text.toString().replace(/"/g, '""')}"` : "";
 
-            // 1. Unfollowers (Strangers - people I follow but they don't follow back)
-            // In init(), state.followingList is populated from storage.lastScanResults
-            const strangers = state.followingList || [];
-            strangers.forEach(user => {
-                csvContent += `${esc(user.id)},${esc(user.username)},${esc(user.full_name)},Not Following Back,${esc(new Date().toISOString())}\n`;
-            });
+            // Helper to add rows
+            const addRows = (list, category, labelOverride) => {
+                list.forEach(user => {
+                    // Use detected_at if available (for snakes), otherwise empty or current date? 
+                    // Let's stick to simple columns requested: list of followers, non followers, etc.
+                    // Adding Profile URL for convenience.
+                    csvContent += `${esc(user.id)},${esc(user.username)},${esc(user.full_name)},${labelOverride || category},https://instagram.com/${user.username}\n`;
+                });
+            };
 
-            // 2. Snakes (People who unfollowed me)
-            const snakes = state.snakes || [];
-            snakes.forEach(user => {
-                const date = user.detected_at ? new Date(user.detected_at).toISOString() : "";
-                csvContent += `${esc(user.id)},${esc(user.username)},${esc(user.full_name)},Unfollowed Me (Snake),${date}\n`;
-            });
+            // 2. Add Data to CSV
 
-            // 3. Whitelisted
-            const whitelisted = state.whitelisted || [];
-            whitelisted.forEach(userId => {
-                // We typically only store IDs in whitelist, but let's check if we have objects.
-                // state.whitelisted is likely array of strings (IDs) or objects? 
-                // loadWhitelist returns array of IDs usually? 
-                // popup.js:804 -> state.whitelisted = await addToWhitelist(user); -> returns updated list.
-                // utils.js usually manages this. 
-                // If it's just IDs, I can't print names.
-                // For now, let's skip Whitelist details if we don't have them, or just print IDs.
-                // Or try to match with other lists.
-            });
+            // A. Followers
+            addRows(followers, "Follower");
 
+            // B. Non-Followers (Strangers)
+            addRows(nonFollowers, "Non-Follower (Does Not Follow Back)");
+
+            // C. Snakes
+            addRows(snakes, "Snake (Unfollowed You)");
+
+            // D. Unfollowers (Using "Following" list as requested? Or just interpret "Unfollowers" as Snakes?)
+            // The user said: "list of followers , non followers , snakes and unfollowers"
+            // "Unfollowers" distinct from "non followers".
+            // Since "Snakes" are "people who stopped following", maybe "Unfollowers" means "People I Unfollowed"?
+            // But we don't track that list.
+            // Let's assume user wants "All Following" as well to complete the picture.
+            // Or maybe "Unfollowers" means "Mutuals"? 
+            // Let's print "Following" (All) as the 4th category.
+            // Wait, following includes non-followers and mutuals.
+            // Let's just output the 3 distinct groups we have: Followers (Fans), Non-Followers (Strangers), Snakes.
+            // And maybe "Mutuals" (Following who ARE in Followers)?
+            // "followers" + "non followers" = roughly "Following" + "Fans".
+            // Let's output "Following" list?
+            addRows(following, "Following (All)");
+
+            // 3. Download
             const encodedUri = encodeURI(csvContent);
             const link = document.createElement("a");
             link.setAttribute("href", encodedUri);
             const dateStr = new Date().toISOString().split('T')[0];
-            link.setAttribute("download", `instagram_unfollowers_${dateStr}.csv`);
+            link.setAttribute("download", `instagram_data_${dateStr}.csv`);
             document.body.appendChild(link);
             link.click();
             document.body.removeChild(link);
@@ -832,22 +831,27 @@ const updateFromBackground = (bgState) => {
         state.status = bgState.status;
         switchView('scanning');
         ui.scanningText.textContent = bgState.status === 'scanning' ? "Scanning..." : "Unfollowing...";
-        const count = bgState.status === 'scanning' ? state.scannedCount : (bgState.unfollowedCount || 0);
-        const noun = bgState.status === 'scanning' ? 'users' : 'processed';
-        ui.scanningSubtext.textContent = `${count} ${noun}...`;
+
+        // Use statusMessage from ProgressManager, or fallback to count
+        const statusMessage = bgState.statusMessage || `${state.scannedCount} users scanned`;
+        ui.scanningSubtext.textContent = statusMessage;
+
+        // Update progress bar with smooth transition
+        ui.scanProgress.style.transition = 'width 0.3s ease-out';
         ui.scanProgress.style.width = `${state.progress}%`;
         ui.scanPercentage.textContent = `${state.progress}%`;
     } else if (bgState.status === 'idle') {
         // Idle: check if scan just completed
         const wasScanningBefore = state.status === 'scanning';
+        const wasUnfollowingBefore = state.status === 'unfollowing';
         state.status = state.followingList.length > 0 ? 'results' : 'initial';
 
         // If scan just completed, go to results page
         if (document.getElementById('view-scanning').classList.contains('active')) {
-            if (wasScanningBefore && state.followingList.length > 0) {
-                // Scan completed - go to results page
+            if ((wasScanningBefore || wasUnfollowingBefore) && state.followingList.length > 0) {
+                // Scan/Unfollow completed - go to results page
                 showPreviousResults();
-                showCompletionBanner();
+                if (wasScanningBefore) showCompletionBanner();
             } else {
                 // No results - stay on start
                 checkReturningUser();
@@ -1120,12 +1124,17 @@ const toggleUserSelection = (userId, isSelected) => {
 
 const saveSettings = async (e) => {
     e.preventDefault();
+    const scanDelay = parseInt(ui.inputScanDelay.value, 10) || 1000;
+    const unfollowDelay = parseInt(ui.inputUnfollowDelay.value, 10) || 4000;
+    const autoScan = ui.toggleAutoScan.checked;
+
     await chrome.storage.local.set({
-        enableAutoScan: ui.toggleAutoScan.checked
-        // delays could also be stored/sent to bg
+        scanDelay: scanDelay,
+        unfollowDelay: unfollowDelay,
+        enableAutoScan: autoScan
     });
     toggleModal(ui.modalSettings, false);
-    showToast('Settings saved', 'success');
+    showToast('Settings saved successfully', 'success');
 };
 
 const showToast = (msg, type = 'info') => {

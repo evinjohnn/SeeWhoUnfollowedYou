@@ -42,11 +42,12 @@ chrome.storage.local.get(['snakes', 'lastScanResults'], (data) => {
     if (data.lastScanResults) masterState.followingList = data.lastScanResults;
 });
 
-// Enable autoscan by default on first install
+// First install - do NOT auto-enable scan, let user go through tour first
 chrome.runtime.onInstalled.addListener((details) => {
     if (details.reason === 'install') {
-        chrome.storage.local.set({ enableAutoScan: true });
-        console.log('Auto-scan enabled by default on first install');
+        // Don't set enableAutoScan on first install
+        // User should manually do first scan after tour
+        console.log('Extension installed. Auto-scan disabled until first manual scan.');
     }
 });
 
@@ -101,8 +102,11 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
         masterState.currentTabId = tabId;
 
         // Check Auto-Scan Logic
-        const settings = await chrome.storage.local.get(['enableAutoScan', 'lastAutoScanTime']);
-        if (settings.enableAutoScan) {
+        // Only auto-scan if user has completed at least one manual scan
+        const settings = await chrome.storage.local.get(['enableAutoScan', 'lastAutoScanTime', 'lastScanTime']);
+        const hasCompletedFirstScan = settings.lastScanTime && settings.lastScanTime > 0;
+
+        if (settings.enableAutoScan && hasCompletedFirstScan) {
             const lastTime = settings.lastAutoScanTime || 0;
             const ONE_DAY_MS = 24 * 60 * 60 * 1000;
             if (Date.now() - lastTime > ONE_DAY_MS) {
@@ -134,15 +138,242 @@ const broadcastUpdate = () => {
     }
 };
 
+// ===========================================
+// ADAPTIVE PROGRESS MANAGER
+// 4-Phase Monotonic Progress System
+// FAST: 0-40% (timer-driven, immediate feedback)
+// SLOW_BURN: 40-50% (conditional buffer, only if followers not done)
+// FOLLOWING: 50-100% (data-driven, following scan completion)
+// DONE: 100% (snap to completion)
+// ===========================================
+const ProgressManager = {
+    // State
+    progress: 0,
+    phase: 'FAST', // FAST | SLOW_BURN | FOLLOWING | DONE
+    followersDone: false,
+    followingDone: false,
+    totalFollowing: 0,
+    scannedFollowing: 0,
+    statusMessage: 'Starting scan...',
+
+    // Timers
+    fastTimer: null,
+    slowBurnTimer: null,
+
+    // Phase thresholds
+    FAST_MAX: 40,
+    SLOW_BURN_MAX: 50,
+    FOLLOWING_BASE: 50,
+
+    reset() {
+        this.progress = 0;
+        this.phase = 'FAST';
+        this.followersDone = false;
+        this.followingDone = false;
+        this.totalFollowing = 0;
+        this.scannedFollowing = 0;
+        this.statusMessage = 'Starting scan...';
+        this.stopTimers();
+    },
+
+    stopTimers() {
+        if (this.fastTimer) clearInterval(this.fastTimer);
+        if (this.slowBurnTimer) clearInterval(this.slowBurnTimer);
+        this.fastTimer = null;
+        this.slowBurnTimer = null;
+    },
+
+    // Start the fast phase timer (+3% every 4 seconds, caps at 40%)
+    startFastPhase(broadcastFn) {
+        this.phase = 'FAST';
+        this.statusMessage = 'Scanning followers...';
+
+        this.fastTimer = setInterval(() => {
+            if (this.phase !== 'FAST') {
+                clearInterval(this.fastTimer);
+                return;
+            }
+
+            // Increment by 3%, cap at 40%
+            this.progress = Math.min(this.FAST_MAX, this.progress + 3);
+
+            // Vary status messages for engagement
+            if (this.progress < 15) {
+                this.statusMessage = 'Scanning followers...';
+            } else if (this.progress < 30) {
+                this.statusMessage = 'Analyzing connections...';
+            } else {
+                this.statusMessage = 'Verifying data...';
+            }
+
+            if (broadcastFn) broadcastFn();
+
+            // Hit cap - check if we should skip slow burn
+            if (this.progress >= this.FAST_MAX) {
+                clearInterval(this.fastTimer);
+                this.transitionFromFast(broadcastFn);
+            }
+        }, 4000); // Every 4 seconds
+
+        // Immediate first tick
+        this.progress = 3;
+        if (broadcastFn) broadcastFn();
+    },
+
+    // Decision gate at 40%
+    transitionFromFast(broadcastFn) {
+        if (this.followersDone) {
+            // Skip slow burn, jump to 50% immediately
+            this.progress = this.SLOW_BURN_MAX;
+            this.phase = 'FOLLOWING';
+            this.statusMessage = 'Processing following list...';
+            if (broadcastFn) broadcastFn();
+        } else {
+            // Enter slow burn mode
+            this.startSlowBurn(broadcastFn);
+        }
+    },
+
+    // Slow burn: +0.3-0.5% every 5-8 seconds, caps at 50%
+    startSlowBurn(broadcastFn) {
+        this.phase = 'SLOW_BURN';
+        this.statusMessage = 'Verifying connections...';
+
+        const tick = () => {
+            if (this.phase !== 'SLOW_BURN') return;
+
+            // Random increment between 0.3 and 0.5
+            const increment = 0.3 + Math.random() * 0.2;
+            this.progress = Math.min(this.SLOW_BURN_MAX, this.progress + increment);
+            this.progress = Math.round(this.progress * 10) / 10; // Keep 1 decimal
+
+            // Contextual status for slow burn phase
+            const msgs = ['Verifying connections...', 'Checking relationships...', 'Preparing scan...'];
+            this.statusMessage = msgs[Math.floor(Math.random() * msgs.length)];
+
+            if (broadcastFn) broadcastFn();
+
+            if (this.progress < this.SLOW_BURN_MAX && this.phase === 'SLOW_BURN') {
+                // Schedule next tick with random delay (5-8 seconds)
+                const delay = 5000 + Math.random() * 3000;
+                this.slowBurnTimer = setTimeout(tick, delay);
+            }
+        };
+
+        // First tick after 5 seconds
+        this.slowBurnTimer = setTimeout(tick, 5000);
+    },
+
+    // Call when followers scan is complete
+    setFollowersDone(broadcastFn) {
+        this.followersDone = true;
+
+        // If still in slow burn, immediately transition
+        if (this.phase === 'SLOW_BURN') {
+            this.stopTimers();
+            this.progress = this.SLOW_BURN_MAX;
+            this.phase = 'FOLLOWING';
+            this.statusMessage = 'Scanning who you follow...';
+            if (broadcastFn) broadcastFn();
+        }
+    },
+
+    // Set total following count (for 50-100% calculation)
+    setTotalFollowing(count) {
+        this.totalFollowing = count || 1; // Avoid division by zero
+        console.log('[PROGRESS] setTotalFollowing:', this.totalFollowing);
+    },
+
+    // Update following scan progress (drives 50-100%)
+    updateFollowingProgress(scanned, broadcastFn) {
+        this.scannedFollowing = scanned;
+
+        // Only update if in FOLLOWING phase
+        if (this.phase === 'FOLLOWING' && this.totalFollowing > 0) {
+            // Formula: globalProgress = 50 + (oldFollowingPercent / 100) * 50
+            const oldFollowingPercent = Math.min(100, Math.round((this.scannedFollowing / this.totalFollowing) * 100));
+            const globalProgress = 50 + (oldFollowingPercent / 100) * 50;
+
+            console.log('[PROGRESS] Following:', this.scannedFollowing, '/', this.totalFollowing,
+                'oldPercent:', oldFollowingPercent, '-> global:', globalProgress);
+
+            // Monotonic: never go backwards
+            this.progress = Math.max(this.progress, Math.round(globalProgress));
+
+            // Safety cap: never hit 100% until setFollowingDone is called explicitly
+            this.progress = Math.min(99, this.progress);
+
+            // Status updates
+            if (this.progress < 70) {
+                this.statusMessage = `Scanning following (${this.scannedFollowing.toLocaleString()})...`;
+            } else if (this.progress < 90) {
+                this.statusMessage = 'Detecting unfollowers...';
+            } else {
+                this.statusMessage = 'Finalizing results...';
+            }
+
+            if (broadcastFn) broadcastFn();
+        }
+    },
+
+    // Call when following scan is complete
+    setFollowingDone(broadcastFn) {
+        this.followingDone = true;
+        this.stopTimers();
+        this.phase = 'DONE';
+        this.progress = 100;
+        this.statusMessage = 'Scan complete!';
+        if (broadcastFn) broadcastFn();
+    },
+
+    // Force transition to FOLLOWING phase (call after fast phase if needed)
+    forceFollowingPhase(broadcastFn) {
+        if (this.phase === 'FAST' || this.phase === 'SLOW_BURN') {
+            this.stopTimers();
+            this.progress = Math.max(this.progress, this.SLOW_BURN_MAX);
+            this.phase = 'FOLLOWING';
+            this.statusMessage = 'Processing following list...';
+            if (broadcastFn) broadcastFn();
+        }
+    },
+
+    getProgress() {
+        return Math.round(this.progress);
+    },
+
+    getMessage() {
+        return this.statusMessage;
+    },
+
+    getPhase() {
+        return this.phase;
+    }
+};
+
+
 // -- Main Scan Process --
 const startScanProcess = async (isAuto = false) => {
     if (masterState.status === 'scanning') return;
     masterState.status = 'scanning';
-    masterState.followingList = []; // Following List (For Unfollowers)
-    masterState.fanList = []; // Followers List (For Snakes)
+    masterState.followingList = [];
+    masterState.fanList = [];
     masterState.scanCursor = null;
-    masterState.totalToScan = -1;
     masterState.progress = 0;
+    masterState.scannedCount = 0;
+    masterState.statusMessage = 'Starting scan...';
+
+    // Initialize ProgressManager
+    ProgressManager.reset();
+
+    // Broadcast helper
+    const updateUI = () => {
+        masterState.progress = ProgressManager.getProgress();
+        masterState.statusMessage = ProgressManager.getMessage();
+        broadcastUpdate();
+    };
+
+    // Start fast phase timer (0% -> 40%)
+    ProgressManager.startFastPhase(updateUI);
     broadcastUpdate();
 
     try {
@@ -151,65 +382,25 @@ const startScanProcess = async (isAuto = false) => {
         const currentFollowerCount = profileData?.followerCount || 0;
         const currentFollowingCount = profileData?.followingCount || 0;
 
-        // PHASE 1: Scan "Following" List (To find Unfollowers)
-        // Unfollowers = People I follow who don't follow me back
-        masterState.totalToScan = currentFollowingCount;
+        masterState.totalToScan = currentFollowingCount + currentFollowerCount;
+        ProgressManager.setTotalFollowing(currentFollowingCount);
+
+        // ============================================
+        // PHASE 1: FOLLOWERS SCAN (runs during FAST 0-40%)
+        // This happens in background while fast timer runs
+        // ============================================
         let hasNextPage = true;
         let consecutiveErrors = 0;
 
         while (hasNextPage && masterState.status === 'scanning') {
-            const url = await urlGenerator(masterState.scanCursor);
-            if (!url) throw new Error("Failed to generate URL");
-
-            try {
-                const response = await fetch(url);
-                const json = await response.json();
-
-                if (!json.data?.user) throw new Error("Invalid structure");
-
-                const edgeFollow = json.data.user.edge_follow;
-                // Update total if needed, though we set it from profile
-                if (masterState.totalToScan === -1) masterState.totalToScan = edgeFollow.count;
-
-                hasNextPage = edgeFollow.page_info.has_next_page;
-                masterState.scanCursor = edgeFollow.page_info.end_cursor;
-
-                const nodes = edgeFollow.edges.map(e => e.node);
-                masterState.followingList.push(...nodes);
-                masterState.scannedCount += nodes.length;
-
-                // Progress (0-50% for Phase 1)
-                const phase1Progress = (masterState.followingList.length / masterState.totalToScan) * 50;
-                masterState.progress = Math.min(50, Math.round(phase1Progress));
-                broadcastUpdate();
-
-                consecutiveErrors = 0;
-                await sleep(1000 + Math.random() * 500);
-
-            } catch (e) {
-                console.warn("Fetch error (Following)", e);
-                consecutiveErrors++;
-                if (consecutiveErrors > 3) break;
-                await sleep(2000);
-            }
-        }
-
-        // PHASE 2: Scan "Followers" List (To find Snakes)
-        // Snakes = People who were in Last Fan List but are NOT in Current Fan List
-        masterState.scanCursor = null; // Reset for Phase 2
-        hasNextPage = true;
-        consecutiveErrors = 0;
-        const totalFollowers = currentFollowerCount;
-
-        while (hasNextPage && masterState.status === 'scanning') {
             const url = await followersUrlGenerator(masterState.scanCursor);
-            if (!url) break; // Should fail if no generator or cookie
+            if (!url) break;
 
             try {
                 const response = await fetch(url);
                 const json = await response.json();
 
-                if (!json.data?.user) throw new Error("Invalid structure phase 2");
+                if (!json.data?.user) throw new Error("Invalid structure (followers)");
 
                 const edgeFollowedBy = json.data.user.edge_followed_by;
                 hasNextPage = edgeFollowedBy.page_info.has_next_page;
@@ -217,11 +408,10 @@ const startScanProcess = async (isAuto = false) => {
 
                 const nodes = edgeFollowedBy.edges.map(e => e.node);
                 masterState.fanList.push(...nodes);
+                masterState.scannedCount = masterState.fanList.length;
 
-                // Progress (50-100% for Phase 2)
-                const phase2Progress = (masterState.fanList.length / totalFollowers) * 50;
-                masterState.progress = Math.min(100, Math.round(50 + phase2Progress));
-                broadcastUpdate();
+                // Fast timer handles progress, we just update count for display
+                updateUI();
 
                 consecutiveErrors = 0;
                 await sleep(1000 + Math.random() * 500);
@@ -234,8 +424,63 @@ const startScanProcess = async (isAuto = false) => {
             }
         }
 
+        // Followers done - signal ProgressManager
+        ProgressManager.setFollowersDone(updateUI);
+
+        // ============================================
+        // PHASE 2: FOLLOWING SCAN (drives 50% -> 100%)
+        // ============================================
+        masterState.scanCursor = null;
+        hasNextPage = true;
+        consecutiveErrors = 0;
+
+        // Force transition to FOLLOWING phase if still in FAST/SLOW_BURN
+        ProgressManager.forceFollowingPhase(updateUI);
+
+        while (hasNextPage && masterState.status === 'scanning') {
+            const url = await urlGenerator(masterState.scanCursor);
+            if (!url) throw new Error("Failed to generate URL");
+
+            try {
+                const response = await fetch(url);
+                const json = await response.json();
+
+                if (!json.data?.user) throw new Error("Invalid structure (following)");
+
+                const edgeFollow = json.data.user.edge_follow;
+
+                // Update total count if we get a better number from the API
+                // This prevents progress jumping if initial profile fetch failed (returns 0)
+                if (edgeFollow.count > masterState.totalToScan) {
+                    masterState.totalToScan = edgeFollow.count + masterState.fanList.length;
+                    ProgressManager.setTotalFollowing(edgeFollow.count);
+                }
+
+                hasNextPage = edgeFollow.page_info.has_next_page;
+                masterState.scanCursor = edgeFollow.page_info.end_cursor;
+
+                const nodes = edgeFollow.edges.map(e => e.node);
+                masterState.followingList.push(...nodes);
+                masterState.scannedCount = masterState.fanList.length + masterState.followingList.length;
+
+                // Update progress (50% -> 100%)
+                ProgressManager.updateFollowingProgress(masterState.followingList.length, updateUI);
+
+                consecutiveErrors = 0;
+                await sleep(1000 + Math.random() * 500);
+
+            } catch (e) {
+                console.warn("Fetch error (Following)", e);
+                consecutiveErrors++;
+                if (consecutiveErrors > 3) break;
+                await sleep(2000);
+            }
+        }
+
+        // Following done - snap to 100%
+        ProgressManager.setFollowingDone(updateUI);
+        await sleep(300); // Brief pause to show 100%
         masterState.status = 'idle';
-        masterState.progress = 100;
 
         // 3. Post-Scan Analysis
         const storage = await chrome.storage.local.get(['lastScanResults', 'lastFanList', 'snakes', 'scanHistory']);
@@ -268,6 +513,16 @@ const startScanProcess = async (isAuto = false) => {
             // Sort snakes by detected_at DESC (newest first)
             previousSnakes.sort((a, b) => (b.detected_at || 0) - (a.detected_at || 0));
         }
+
+        // --- DEDUPLICATION STEP ---
+        // Ensure accurate counts by removing any duplicates from the scan
+        const uniqueFollowing = new Map();
+        masterState.followingList.forEach(u => uniqueFollowing.set(u.id, u));
+        masterState.followingList = Array.from(uniqueFollowing.values());
+
+        const uniqueFans = new Map();
+        masterState.fanList.forEach(u => uniqueFans.set(u.id, u));
+        masterState.fanList = Array.from(uniqueFans.values());
 
         // 4. Update History (For Net Growth Graph)
         const scanHistory = storage.scanHistory || [];
