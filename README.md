@@ -57,13 +57,13 @@ It provides a comprehensive dashboard to track who unfollowed you, identify "sna
 ## ✨ Features
 
 - **🛡️ Privacy First** — Runs locally. No passwords required. No data sent to external servers.
-- **🔍 Smart Scanning** — Uses Instagram's GraphQL API for fast, efficient, and safe follower fetching.
-- **🐍 Snake Detection** — Automatically identifying users who don't follow you back or recently unfollowed you.
-- **📈 Clout Tracker** — Visual sparkline graph showing your net follower growth (deltas) over time.
-- **📅 Daily Snapshots** — Aggregates data by day to provide accurate historical trends.
-- **⚡ Background Scanning** — Capable of running checks in the background without keeping the popup open.
+- **🔍 Adaptive Smart Scanning** — New 4-phase scanning engine (Fast Start → Slow Burn → Following Scan → Done) ensures honest, resilient progress without stalling.
+- **🐍 Snake Detection** — Automatically identify users who don't follow you back or recently unfollowed you.
+- **📊 Advanced Data Export** — Download comprehensive CSVs containing Followers, Non-Followers, Snakes, and your full Following list.
+- **⚙️ Configurable Settings** — Customize scan delays, unfollow safety limits, and toggle auto-scanning via the new Settings menu.
+- **📈 Clout Tracker** — Visual sparkline graph showing your true net follower growth (deltas) over time.
 - **⚪ Whitelist System** — Protect specific users from being flagged or unfollowed.
-- **🌘 Premium UI** — Beautiful dark-mode interface with smooth animations and responsive feedback.
+- **🌘 Premium UI** — Beautiful dark-mode interface with glassmorphism and smooth animations.
 
 ---
 
@@ -163,6 +163,9 @@ SeeWhoUnfollowedYou/
 
 4. **Manage Connections**
    - Select users to whitelist (keep safe) or unfollow (bulk actions available).
+
+5. **Configure Settings**
+   - Click the gear icon to adjust scan delays, toggle daily auto-scans, or export your full data as CSV.
 
 ---
 
