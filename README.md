@@ -71,7 +71,7 @@ It provides a comprehensive dashboard to track who unfollowed you, identify "sna
 
 | Browser | Status | Link |
 |---------|--------|------|
-| Google Chrome | ✅ Available | [Chrome Web Store](#) |
+| Google Chrome | ✅ Available | [Chrome Web Store](https://chromewebstore.google.com/detail/cbbhafmfmehgikkebakfcfiodjchieon?utm_source=item-share-cb) |
 | Microsoft Edge | ✅ Compatible | [Edge Add-ons](#) |
 | Opera | ✅ Compatible | [Opera Addons](#) |
 
